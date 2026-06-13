@@ -14,11 +14,13 @@ export interface ProjectFile {
   name: string;
   path: string;
   isDir: boolean;
+  isCode?: boolean;       // true = analysed, false = display-only (assets, config, docs…)
+  language?: string;      // detected language label
   code?: string;
   riskState: 'safe' | 'medium' | 'high' | 'critical';
   issues: Issue[];
   parentId?: string;
-  dependencies?: string[]; // relative paths of other files this file imports
+  dependencies?: string[];
   riskScore?: number;
   imports?: string[];
   exports?: string[];
@@ -41,7 +43,9 @@ export interface Project {
   files: ProjectFile[];
   ownerId?: string;
   analysisStats?: {
-    filesParsed: number;
+    totalFilesFound: number;    // every file discovered (code + non-code)
+    foldersFound: number;       // directory count
+    filesParsed: number;        // code files successfully scanned
     filesFailed: number;
     linesProcessed: number;
     detectedLanguages: string[];
@@ -66,7 +70,7 @@ export interface Standard {
   name: string;
   description: string;
   enabled: boolean;
-  ruleKeyword: string; // keyword indicating violation if found in code
+  ruleKeyword: string;
   severity: 'warning' | 'critical';
   ownerId?: string;
 }

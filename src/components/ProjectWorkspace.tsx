@@ -6,6 +6,7 @@ interface FileTreeNode {
   name: string;
   path: string;
   isFile: boolean;
+  isCode?: boolean;
   fileId?: string;
   riskState?: 'safe' | 'medium' | 'high' | 'critical';
   riskScore?: number;
@@ -14,15 +15,9 @@ interface FileTreeNode {
 }
 
 const buildFileTree = (files: ProjectFile[]): FileTreeNode => {
-  const root: FileTreeNode = {
-    name: 'Root',
-    path: '',
-    isFile: false,
-    children: {}
-  };
+  const root: FileTreeNode = { name: 'Root', path: '', isFile: false, children: {} };
 
   files.forEach(file => {
-    // Normalize path: replace backslashes, collapse double slashes
     const normalPath = file.path.replace(/\\/g, '/').replace(/\/+/g, '/');
     const parts = normalPath.split('/').filter(p => p.length > 0);
     let current = root;
@@ -33,32 +28,31 @@ const buildFileTree = (files: ProjectFile[]): FileTreeNode => {
 
       if (!current.children[part]) {
         current.children[part] = {
-          name: part,
-          path: currentPath,
-          isFile: isLast,
-          fileId: isLast ? file.id : undefined,
-          riskState: isLast ? file.riskState : 'safe',
-          riskScore: isLast ? file.riskScore : 0,
-          hasIssues: isLast ? file.issues.some(i => !i.applied) : false,
+          name: part, path: currentPath, isFile: isLast,
+          isCode:     isLast ? (file.isCode ?? true) : undefined,
+          fileId:     isLast ? file.id : undefined,
+          riskState:  isLast ? file.riskState : 'safe',
+          riskScore:  isLast ? file.riskScore : 0,
+          hasIssues:  isLast ? file.issues.some(i => !i.applied) : false,
           children: {}
         };
       } else if (isLast) {
-        current.children[part].isFile = true;
-        current.children[part].fileId = file.id;
+        current.children[part].isFile    = true;
+        current.children[part].isCode    = file.isCode ?? true;
+        current.children[part].fileId    = file.id;
         current.children[part].riskState = file.riskState;
         current.children[part].riskScore = file.riskScore;
         current.children[part].hasIssues = file.issues.some(i => !i.applied);
       } else {
-        // Update folder risk state to reflect worst child
-        const childRisk = file.riskState;
-        const folderNode = current.children[part];
-        const riskOrder = { safe: 0, medium: 1, high: 2, critical: 3 };
-        if ((riskOrder[childRisk] ?? 0) > (riskOrder[folderNode.riskState ?? 'safe'] ?? 0)) {
-          folderNode.riskState = childRisk;
-          folderNode.hasIssues = true;
+        // Propagate worst risk state up to folder
+        const r = file.riskState;
+        const ord: Record<string, number> = { safe: 0, medium: 1, high: 2, critical: 3 };
+        const fn = current.children[part];
+        if ((ord[r] ?? 0) > (ord[fn.riskState ?? 'safe'] ?? 0)) {
+          fn.riskState = r;
+          if (r !== 'safe') fn.hasIssues = true;
         }
       }
-
       current = current.children[part];
     });
   });
@@ -78,9 +72,10 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeProps> = ({ node, activeFileId
   if (node.isFile) {
     const dotClass = node.hasIssues ? node.riskState : 'safe';
     const hasScore = node.riskScore !== undefined && node.riskScore > 0;
-    
-    let textColor = 'inherit';
-    if (node.hasIssues) {
+    const isNonCode = !node.isCode;
+
+    let textColor = isNonCode ? 'var(--text-secondary)' : 'inherit';
+    if (!isNonCode && node.hasIssues) {
       if (node.riskScore !== undefined) {
         if (node.riskScore >= 80) textColor = 'var(--critical-color)';
         else if (node.riskScore >= 50) textColor = 'var(--warning-color)';
@@ -90,35 +85,51 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeProps> = ({ node, activeFileId
       }
     }
 
+    // Language-aware file icon
+    const ext = node.name.split('.').pop()?.toLowerCase() ?? '';
+    const fileIcon =
+      ['ts','tsx'].includes(ext) ? '🔷' :
+      ['js','jsx','mjs'].includes(ext) ? '🟨' :
+      ext === 'py' ? '🐍' :
+      ext === 'go' ? '🔵' :
+      ['java','kt'].includes(ext) ? '☕' :
+      ['cpp','c','h'].includes(ext) ? '⚙️' :
+      ext === 'cs' ? '💜' :
+      ext === 'rs' ? '🦀' :
+      ext === 'rb' ? '💎' :
+      ext === 'php' ? '🐘' :
+      ext === 'swift' ? '🍎' :
+      ext === 'vue' ? '💚' :
+      ext === 'svelte' ? '🧡' :
+      ['json','yaml','yml','toml'].includes(ext) ? '⚙' :
+      ['md','mdx','txt'].includes(ext) ? '📝' :
+      ['css','scss','sass','less'].includes(ext) ? '🎨' :
+      ['html','htm'].includes(ext) ? '🌐' :
+      ext === 'sql' ? '🗃️' :
+      '📄';
+
     return (
-      <div 
+      <div
         className={`file-tree-item ${activeFileId === node.fileId ? 'active' : ''}`}
-        style={{ paddingLeft: '8px', cursor: 'pointer' }}
+        style={{ paddingLeft: '8px', cursor: 'pointer', opacity: isNonCode ? 0.7 : 1 }}
         onClick={() => node.fileId && onSelectFile(node.fileId)}
       >
         <span className="file-label">
-          <span style={{ marginRight: '6px' }}>📄</span>
-          <span style={{ 
-            color: textColor,
-            fontSize: '13px'
-          }}>
+          <span style={{ marginRight: '6px', fontSize: '12px' }}>{fileIcon}</span>
+          <span style={{ color: textColor, fontSize: '13px' }}>
             {node.name}
             {hasScore && (
-              <span style={{ 
-                fontSize: '10px', 
-                marginLeft: '6px', 
-                opacity: 0.8, 
-                backgroundColor: node.riskScore! >= 80 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(217, 119, 6, 0.15)',
-                padding: '1px 4px',
-                borderRadius: '3px',
-                color: textColor
+              <span style={{
+                fontSize: '10px', marginLeft: '6px', opacity: 0.8,
+                backgroundColor: node.riskScore! >= 80 ? 'rgba(239,68,68,0.15)' : 'rgba(217,119,6,0.15)',
+                padding: '1px 4px', borderRadius: '3px', color: textColor
               }}>
                 {node.riskScore}
               </span>
             )}
           </span>
         </span>
-        <span className={`risk-dot ${dotClass}`}></span>
+        <span className={`risk-dot ${dotClass}`} />
       </div>
     );
   }
@@ -494,40 +505,35 @@ Instructions:
 
           {showAdminPanel && (
             (() => {
-              const stats = project.analysisStats || {
-                filesParsed: project.files.filter(f => !f.isDir).length,
-                filesFailed: 0,
-                linesProcessed: project.files.reduce((acc, f) => acc + (f.code?.split('\n').length || 0), 0),
-                detectedLanguages: Array.from(new Set(project.files.map(f => f.name.split('.').pop()?.toUpperCase()).filter(Boolean))) as string[],
-                analysisDurationMs: 1250,
-                totalFindings: project.files.reduce((acc, f) => acc + f.issues.length, 0)
-              };
+              const stats = project.analysisStats;
+              const totalFilesInTree = project.files.filter(f => !f.isDir).length;
+              const codeFilesCount  = project.files.filter(f => !f.isDir && f.isCode !== false).length;
+              const nonCodeCount    = project.files.filter(f => !f.isDir && f.isCode === false).length;
+              const totalFindings   = project.files.reduce((a, f) => a + f.issues.filter(i => !i.applied).length, 0);
+              const langs = stats?.detectedLanguages ?? [...new Set(project.files.filter(f => f.language).map(f => f.language!))];
               return (
                 <div style={{
-                  margin: '8px 4px 16px 4px',
-                  padding: '12px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                  border: '1px dashed rgba(239, 68, 68, 0.3)',
-                  borderRadius: '6px',
-                  fontSize: '11px',
-                  fontFamily: 'monospace'
+                  margin: '8px 4px 16px 4px', padding: '12px',
+                  backgroundColor: 'rgba(239,68,68,0.05)',
+                  border: '1px dashed rgba(239,68,68,0.3)',
+                  borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace'
                 }}>
                   <div style={{ fontWeight: 700, color: 'var(--critical-color)', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>⚙️ ADMIN DEBUG PANEL</span>
-                    <button 
-                      onClick={() => setShowAdminPanel(false)}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '9px' }}
-                    >
-                      ✕
-                    </button>
+                    <span>⚙️ DEBUG PANEL</span>
+                    <button onClick={() => setShowAdminPanel(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '9px' }}>✕</button>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: 'var(--text-secondary)' }}>
-                    <div>Files Scanned: <strong style={{ color: 'var(--text-primary)' }}>{stats.filesParsed}</strong></div>
-                    <div>Files Failed: <strong style={{ color: 'var(--text-primary)' }}>{stats.filesFailed}</strong></div>
-                    <div>Lines Scanned: <strong style={{ color: 'var(--text-primary)' }}>{stats.linesProcessed}</strong></div>
-                    <div>Duration: <strong style={{ color: 'var(--text-primary)' }}>{stats.analysisDurationMs}ms</strong></div>
-                    <div>Total Findings: <strong style={{ color: 'var(--text-primary)' }}>{stats.totalFindings}</strong></div>
-                    <div>Languages: <strong style={{ color: 'var(--text-primary)' }}>{stats.detectedLanguages.join(', ')}</strong></div>
+                    <div>Total Files Found:  <strong style={{ color: 'var(--text-primary)' }}>{stats?.totalFilesFound ?? totalFilesInTree}</strong></div>
+                    <div>Folders Found:      <strong style={{ color: 'var(--text-primary)' }}>{stats?.foldersFound ?? '—'}</strong></div>
+                    <div>Files in Tree:      <strong style={{ color: 'var(--text-primary)' }}>{totalFilesInTree}</strong></div>
+                    <div>Code Files:        <strong style={{ color: 'var(--text-primary)' }}>{codeFilesCount}</strong></div>
+                    <div>Non-Code Files:    <strong style={{ color: 'var(--text-primary)' }}>{nonCodeCount}</strong></div>
+                    <div>Files Parsed (AI): <strong style={{ color: 'var(--text-primary)' }}>{stats?.filesParsed ?? codeFilesCount}</strong></div>
+                    <div>Files Failed:      <strong style={{ color: 'var(--text-primary)' }}>{stats?.filesFailed ?? 0}</strong></div>
+                    <div>Lines Processed:   <strong style={{ color: 'var(--text-primary)' }}>{(stats?.linesProcessed ?? 0).toLocaleString()}</strong></div>
+                    <div>Total Findings:    <strong style={{ color: totalFindings > 0 ? 'var(--warning-color)' : 'var(--success-color)' }}>{totalFindings}</strong></div>
+                    <div>Duration:          <strong style={{ color: 'var(--text-primary)' }}>{stats?.analysisDurationMs ?? 0}ms</strong></div>
+                    <div>Languages:         <strong style={{ color: 'var(--text-primary)' }}>{langs.slice(0,8).join(', ')}</strong></div>
                   </div>
                 </div>
               );
