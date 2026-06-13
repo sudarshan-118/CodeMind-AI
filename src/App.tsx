@@ -287,6 +287,23 @@ export default function App() {
       description: newProj.description,
       source_type: newProj.name.includes('github') ? 'github' : 'folder'
     }, user?.id || '').then(dbProjId => {
+      // Update state and active project IDs to match Supabase UUID
+      setProjects(prev => {
+        const updated = prev.map(p => {
+          if (p.id === newProj.id) {
+            return {
+              ...p,
+              id: dbProjId,
+              files: p.files.map(f => ({ ...f, projectId: dbProjId }))
+            };
+          }
+          return p;
+        });
+        localStorage.setItem('codemind_projects', JSON.stringify(updated));
+        return updated;
+      });
+      setActiveProjectId(dbProjId);
+
       dbService.saveReview({
         project_id: dbProjId,
         overall_score: newProj.overallScore,
@@ -323,11 +340,19 @@ export default function App() {
         });
       });
 
-      // Save dependency graph
+      // Save dependency graph with full file metadata and content
       const nodes = newProj.files.map(f => ({
         id: f.id,
         label: f.name,
-        risk: f.issues.some(i => !i.applied) ? f.riskState : 'safe'
+        risk: f.issues.some(i => !i.applied) ? f.riskState : 'safe',
+        isDir: f.isDir,
+        isCode: f.isCode,
+        language: f.language,
+        code: f.code,
+        riskScore: f.riskScore,
+        size: f.size,
+        imports: f.imports || [],
+        exports: f.exports || []
       }));
       const edges = newProj.files.flatMap(f => (f.dependencies || []).map(d => ({
         source: f.id,
@@ -337,7 +362,11 @@ export default function App() {
 
       dbService.saveDependencyGraph({
         project_id: dbProjId,
-        graph_data: { nodes, edges }
+        graph_data: { 
+          nodes, 
+          edges,
+          analysisStats: newProj.analysisStats 
+        }
       }, user?.id || '');
     }).catch(err => {
       console.error('CodeMind: DB write error during ingestion:', err);

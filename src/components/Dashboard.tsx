@@ -168,12 +168,20 @@ const scanLocal = (code: string, stds: Standard[]): Issue[] => {
 //  Groq AI Scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
-const scanWithGroq = async (name: string, path: string, code: string, stds: Standard[]): Promise<Issue[]> => {
+const scanWithGroq = async (name: string, path: string, code: string, stds: Standard[], memories: Memory[]): Promise<Issue[]> => {
   const key = import.meta.env.VITE_GROQ_API_KEY;
   if (!key) return scanLocal(code, stds);
 
   const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const enabled = stds.filter(s => s.enabled);
+
+  // Map only the most recent memory records to keep prompt compact and focused
+  const cleanMemories = memories.slice(0, 15).map(m => ({
+    issue: m.issue,
+    fix: m.fix,
+    recommendation: m.recommendation,
+    outcome: m.outcome
+  }));
 
   const sys = `You are CodeMind AI — a strict code security and quality analyser.
 Analyse ONLY what is visible in the code provided. NEVER invent or hallucinate issues.
@@ -189,7 +197,12 @@ Detect ONLY these categories (skip any that are absent):
 9. Weak Validation — absent or trivial input sanitization
 10. Large Functions — functions exceeding 80 lines
 11. JWT Problems — weak secrets, no expiry
-Team standards: ${JSON.stringify(enabled.map(s => ({ name: s.name, desc: s.description, kw: s.ruleKeyword })))}
+
+Team standards to enforce: ${JSON.stringify(enabled.map(s => ({ name: s.name, desc: s.description, kw: s.ruleKeyword })))}
+
+Historical database of previous fixes and resolutions to reference (enforce consistency with these fixes):
+${JSON.stringify(cleanMemories)}
+
 Return ONLY valid JSON: {"issues":[{"line":N,"type":"...","severity":"critical|high|medium","explanation":"...","recommendedFix":"..."}]}
 If nothing found: {"issues":[]}`;
 
@@ -643,7 +656,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         try {
           const issues  = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable')
             ? []
-            : await scanWithGroq(f.name, f.path, f.code, standards);
+            : await scanWithGroq(f.name, f.path, f.code, standards, memories);
 
           const deps    = resolveDeps(f.path, f.code, allPaths);
           const { imports, exports } = extractImportsExports(f.name, f.code);

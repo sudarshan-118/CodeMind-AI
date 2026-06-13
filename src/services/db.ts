@@ -214,6 +214,8 @@ export const dbService = {
               name: node.label,
               path: node.id,
               isDir: node.isDir || false,
+              isCode: node.isCode !== undefined ? node.isCode : true,
+              language: node.language || (node.label.includes('.py') ? 'Python' : 'TypeScript'),
               riskState: node.risk || 'safe',
               riskScore: node.riskScore ?? 0,
               size: node.size ?? 0,
