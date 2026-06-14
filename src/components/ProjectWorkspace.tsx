@@ -401,12 +401,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const activeFile = project.files.find(f => f.id === activeFileId) || project.files[0];
 
   const generateAIReview = async () => {
-    let groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
-    const fallbackKey = import.meta.env.VITE_GROQ_API_KEY_FALLBACK;
-    if (!groqApiKey && fallbackKey) {
-      groqApiKey = fallbackKey;
-    }
-    if (!groqApiKey) {
+    const keys = [
+      import.meta.env.VITE_GROQ_API_KEY,
+      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+      import.meta.env.VITE_GROQ_API_KEY_3,
+      import.meta.env.VITE_GROQ_API_KEY_4
+    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+    if (keys.length === 0) {
       setAiReviewText("### AI Review Agent (Offline)\n\nGroq API Key is not configured. Please add `VITE_GROQ_API_KEY` to your environment variables to enable dynamic AI reviews.");
       return;
     }
@@ -489,30 +491,28 @@ Instructions:
         });
       };
 
-      let response: Response;
-      try {
-        response = await executeRequest(groqApiKey);
-      } catch (err) {
-        if (fallbackKey) {
-          console.warn("CodeMind AI: Primary Groq API request threw an error in workspace. Retrying with fallback key…", err);
-          response = await executeRequest(fallbackKey);
-        } else {
-          throw err;
+      let response: Response | null = null;
+      let lastError: any = null;
+
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        try {
+          const res = await executeRequest(key);
+          if (res.ok) {
+            response = res;
+            break;
+          } else {
+            console.warn(`CodeMind AI: Workspace Key ${i + 1}/${keys.length} failed with status ${res.status}.`);
+            lastError = new Error(`HTTP status ${res.status}`);
+          }
+        } catch (err) {
+          console.warn(`CodeMind AI: Workspace Key ${i + 1}/${keys.length} threw an error.`, err);
+          lastError = err;
         }
       }
 
-      if (!response.ok) {
-        if (fallbackKey && response.status !== 400) {
-          console.warn(`CodeMind AI: Primary Groq API Key failed with status ${response.status} in workspace. Retrying with fallback key…`);
-          try {
-            response = await executeRequest(fallbackKey);
-          } catch {
-            throw new Error('Groq API returned an error status: ' + response.status);
-          }
-        }
-        if (!response.ok) {
-          throw new Error('Groq API returned an error status: ' + response.status);
-        }
+      if (!response || !response.ok) {
+        throw lastError || new Error("All configured API keys failed.");
       }
 
       const data = await response.json();

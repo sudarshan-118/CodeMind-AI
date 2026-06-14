@@ -197,13 +197,17 @@ const fetchWithRetry = async (
 //  Groq AI Scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
+let lastScanKeyIndex = 0;
+
 const scanWithGroq = async (_name: string, path: string, code: string, stds: Standard[], memories: Memory[]): Promise<Issue[]> => {
-  let key = import.meta.env.VITE_GROQ_API_KEY;
-  const fallbackKey = import.meta.env.VITE_GROQ_API_KEY_FALLBACK;
-  if (!key && fallbackKey) {
-    key = fallbackKey;
-  }
-  if (!key) return scanLocal(code, stds);
+  const keys = [
+    import.meta.env.VITE_GROQ_API_KEY,
+    import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+    import.meta.env.VITE_GROQ_API_KEY_3,
+    import.meta.env.VITE_GROQ_API_KEY_4
+  ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+  if (keys.length === 0) return scanLocal(code, stds);
 
   const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const enabled = stds.filter(s => s.enabled);
@@ -253,52 +257,43 @@ If nothing found: {"issues":[]}`;
     });
   };
 
-  let res: Response;
-  try {
-    res = await executeScan(key);
-  } catch (err) {
-    if (fallbackKey) {
-      console.warn("CodeMind AI: Primary Groq API request threw an error. Retrying with fallback key…", err);
-      try {
-        res = await executeScan(fallbackKey);
-      } catch {
-        return scanLocal(code, stds);
+  // Select initial key with load balancing
+  const startIndex = lastScanKeyIndex;
+  lastScanKeyIndex = (lastScanKeyIndex + 1) % keys.length;
+
+  let lastError: any = null;
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const currentKeyIndex = (startIndex + attempt) % keys.length;
+    const currentKey = keys[currentKeyIndex];
+    try {
+      const res = await executeScan(currentKey);
+      if (res.ok) {
+        const data = await res.json();
+        let txt = data.choices?.[0]?.message?.content ?? '{}';
+        const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fence) txt = fence[1].trim();
+        const parsed = JSON.parse(txt);
+        if (!Array.isArray(parsed.issues)) return scanLocal(code, stds);
+        return parsed.issues.map((i: Record<string, unknown>) => ({
+          id: mk(), line: Number(i.line) || 1,
+          type: String(i.type || 'AI Finding'),
+          severity: ['critical','high','medium'].includes(String(i.severity)) ? i.severity as Issue['severity'] : 'medium',
+          explanation: String(i.explanation || 'Code quality issue.'),
+          recommendedFix: String(i.recommendedFix || '// Refactor per best practices'),
+          applied: false,
+        }));
+      } else {
+        console.warn(`CodeMind AI: Key ${currentKeyIndex + 1}/${keys.length} failed with status ${res.status}.`);
+        lastError = new Error(`HTTP status ${res.status}`);
       }
-    } else {
-      return scanLocal(code, stds);
+    } catch (err) {
+      console.warn(`CodeMind AI: Key ${currentKeyIndex + 1}/${keys.length} threw an error.`, err);
+      lastError = err;
     }
   }
 
-  if (!res.ok) {
-    if (fallbackKey && res.status !== 400) {
-      console.warn(`CodeMind AI: Primary Groq API Key failed with status ${res.status}. Retrying with fallback key…`);
-      try {
-        res = await executeScan(fallbackKey);
-      } catch {
-        return scanLocal(code, stds);
-      }
-    }
-    if (!res.ok) return scanLocal(code, stds);
-  }
-
-  try {
-    const data = await res.json();
-    let txt = data.choices?.[0]?.message?.content ?? '{}';
-    const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fence) txt = fence[1].trim();
-    const parsed = JSON.parse(txt);
-    if (!Array.isArray(parsed.issues)) return scanLocal(code, stds);
-    return parsed.issues.map((i: Record<string, unknown>) => ({
-      id: mk(), line: Number(i.line) || 1,
-      type: String(i.type || 'AI Finding'),
-      severity: ['critical','high','medium'].includes(String(i.severity)) ? i.severity as Issue['severity'] : 'medium',
-      explanation: String(i.explanation || 'Code quality issue.'),
-      recommendedFix: String(i.recommendedFix || '// Refactor per best practices'),
-      applied: false,
-    }));
-  } catch {
-    return scanLocal(code, stds);
-  }
+  console.warn("CodeMind AI: All configured Groq API keys failed or were rate limited. Falling back to local scanner.", lastError);
+  return scanLocal(code, stds);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -704,7 +699,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       // ── 2. Scan each code file ───────────────────────────────────────────
       const allPaths = parsedFiles.map(f => f.path);
-      const hasGroq  = !!import.meta.env.VITE_GROQ_API_KEY;
+      const hasGroq = !!(
+        import.meta.env.VITE_GROQ_API_KEY ||
+        import.meta.env.VITE_GROQ_API_KEY_FALLBACK ||
+        import.meta.env.VITE_GROQ_API_KEY_3 ||
+        import.meta.env.VITE_GROQ_API_KEY_4
+      );
 
       if (hasGroq) addLog(`🤖 Groq AI (llama-3.3-70b-versatile) active — deep semantic analysis.`);
       else addLog(`🔍 Local syntactic scanner active (set VITE_GROQ_API_KEY for AI analysis).`);
@@ -723,45 +723,65 @@ export const Dashboard: React.FC<DashboardProps> = ({
         });
       });
 
-      // Scan code files
-      for (let i = 0; i < codeFiles.length; i++) {
-        const f = codeFiles[i];
-        const display = f.path.length > 55 ? `…${f.path.slice(-52)}` : f.path;
-        if (i % 3 === 0 || i === 0) addLog(`${hasGroq ? '🤖' : '🔍'} [${i + 1}/${codeFiles.length}] ${display}`);
+      // Scan code files in parallel (concurrency limit: 4)
+      const CONCURRENCY_LIMIT = 4;
+      const results: ProjectFile[] = new Array(codeFiles.length);
+      let nextIndex = 0;
 
-        try {
-          const issues  = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable')
-            ? []
-            : await scanWithGroq(f.name, f.path, f.code, standards, memories);
+      const worker = async () => {
+        while (true) {
+          const index = nextIndex++;
+          if (index >= codeFiles.length) break;
 
-          const deps    = resolveDeps(f.path, f.code, allPaths);
-          const { imports, exports } = extractImportsExports(f.name, f.code);
-          const riskState = issues.some(i => i.severity === 'critical') ? 'critical'
-            : issues.some(i => i.severity === 'high')   ? 'high'
-            : issues.some(i => i.severity === 'medium') ? 'medium' : 'safe';
+          const f = codeFiles[index];
+          const display = f.path.length > 55 ? `…${f.path.slice(-52)}` : f.path;
+          addLog(`${hasGroq ? '🤖' : '🔍'} [${index + 1}/${codeFiles.length}] Started scanning ${display}…`);
 
-          projectFiles.push({
-            id: `file-${projId}-${i}`, projectId: projId,
-            name: f.name, path: f.path, isDir: false, isCode: true,
-            language: detectLanguage(f.name),
-            code: f.code, riskState, riskScore: 0,
-            issues, dependencies: deps, imports, exports, size: f.size,
-          });
-          filesParsed++;
-        } catch (err) {
-          console.error(`Failed scanning ${f.path}:`, err);
-          filesFailed++;
-          projectFiles.push({
-            id: `file-${projId}-${i}`, projectId: projId,
-            name: f.name, path: f.path, isDir: false, isCode: true,
-            language: detectLanguage(f.name),
-            code: f.code, riskState: 'safe', riskScore: 0,
-            issues: [], dependencies: [], imports: [], exports: [], size: f.size,
-          });
+          try {
+            const issues  = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable')
+              ? []
+              : await scanWithGroq(f.name, f.path, f.code, standards, memories);
+
+            const deps    = resolveDeps(f.path, f.code, allPaths);
+            const { imports, exports } = extractImportsExports(f.name, f.code);
+            const riskState = issues.some(i => i.severity === 'critical') ? 'critical'
+              : issues.some(i => i.severity === 'high')   ? 'high'
+              : issues.some(i => i.severity === 'medium') ? 'medium' : 'safe';
+
+            results[index] = {
+              id: `file-${projId}-${index}`, projectId: projId,
+              name: f.name, path: f.path, isDir: false, isCode: true,
+              language: detectLanguage(f.name),
+              code: f.code, riskState, riskScore: 0,
+              issues, dependencies: deps, imports, exports, size: f.size,
+            };
+            filesParsed++;
+            addLog(`✓ [${index + 1}/${codeFiles.length}] Finished scanning ${f.name}`);
+          } catch (err) {
+            console.error(`Failed scanning ${f.path}:`, err);
+            filesFailed++;
+            results[index] = {
+              id: `file-${projId}-${index}`, projectId: projId,
+              name: f.name, path: f.path, isDir: false, isCode: true,
+              language: detectLanguage(f.name),
+              code: f.code, riskState: 'safe', riskScore: 0,
+              issues: [], dependencies: [], imports: [], exports: [], size: f.size,
+            };
+            addLog(`❌ [${index + 1}/${codeFiles.length}] Failed scanning ${f.name}`);
+          }
+
+          const completedCount = results.filter(Boolean).length;
+          setProgress(45 + Math.round((completedCount / codeFiles.length) * 35));
         }
+      };
 
-        setProgress(45 + Math.round(((i + 1) / codeFiles.length) * 35));
+      const workers = [];
+      for (let w = 0; w < Math.min(CONCURRENCY_LIMIT, codeFiles.length); w++) {
+        workers.push(worker());
       }
+      await Promise.all(workers);
+
+      projectFiles.push(...results);
 
       // ── 3. Cross-file analysis ───────────────────────────────────────────
       const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
