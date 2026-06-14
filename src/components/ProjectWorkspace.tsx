@@ -1164,17 +1164,14 @@ Instructions:
                   
                   {/* Arrows marker */}
                   <defs>
-                    <marker id="arrow" viewBox="0 0 10 10" refX="18" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                       <path d="M 0 2 L 10 5 L 0 8 z" fill="var(--border-color)" />
                     </marker>
-                    <marker id="arrow-vulnerable" viewBox="0 0 10 10" refX="18" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <marker id="arrow-vulnerable" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                       <path d="M 0 2 L 10 5 L 0 8 z" fill="var(--critical-color)" />
                     </marker>
                   </defs>
-                         {(() => {
-                    // Pre-calculate dynamic node positions to avoid layout overlaps
-                    const coords: { [key: string]: { x: number; y: number } } = {};
-                    
+                  {(() => {
                     const incoming: { [key: string]: number } = {};
                     project.files.forEach(f => {
                       incoming[f.path] = 0;
@@ -1187,50 +1184,83 @@ Instructions:
                       });
                     });
 
-                    const col0: string[] = [];
-                    const col2: string[] = [];
-                    const col1: string[] = [];
-
-                    project.files.forEach(f => {
+                    // Keep files that have at least one dependency connection (incoming or outgoing)
+                    const connectedFiles = project.files.filter(f => {
                       const inc = incoming[f.path] || 0;
                       const out = f.dependencies?.length || 0;
-                      if (inc === 0 && out > 0) {
-                        col0.push(f.id);
-                      } else if (out === 0) {
-                        col2.push(f.id);
-                      } else {
-                        col1.push(f.id);
-                      }
+                      return inc > 0 || out > 0;
                     });
 
-                    if (col0.length === 0 && col2.length === 0 && col1.length === 0) {
-                      project.files.forEach((f, idx) => {
-                        coords[f.id] = { x: 50 + (idx % 3) * 190, y: 40 + Math.floor(idx / 3) * 80 };
+                    // Fallback to all files if no files are connected
+                    const filesToRender = connectedFiles.length > 0 ? connectedFiles : project.files;
+
+                    // Pre-calculate dynamic node positions using layered topological levels
+                    const coords: { [key: string]: { x: number; y: number } } = {};
+                    const levels: { [key: string]: number } = {};
+                    filesToRender.forEach(f => {
+                      levels[f.path] = 0;
+                    });
+
+                    // Compute maximum dependency path depth (topological level)
+                    for (let pass = 0; pass < 6; pass++) {
+                      let updated = false;
+                      filesToRender.forEach(f => {
+                        const currentLvl = levels[f.path] ?? 0;
+                        f.dependencies?.forEach(dep => {
+                          if (levels[dep] !== undefined) {
+                            const newLvl = currentLvl + 1;
+                            if (levels[dep] < newLvl) {
+                              levels[dep] = newLvl;
+                              updated = true;
+                            }
+                          }
+                        });
                       });
-                    } else {
-                      if (col0.length === 0 && col1.length > 0) {
-                        col0.push(col1.shift()!);
-                      }
-                      if (col2.length === 0 && col1.length > 0) {
-                        col2.push(col1.pop()!);
-                      }
-                      
-                      col0.forEach((id, idx) => { coords[id] = { x: 50, y: 40 + idx * 80 }; });
-                      col1.forEach((id, idx) => { coords[id] = { x: 240, y: 40 + idx * 80 }; });
-                      col2.forEach((id, idx) => { coords[id] = { x: 430, y: 40 + idx * 80 }; });
+                      if (!updated) break;
                     }
 
-                    // Fallback for any file not mapped
+                    // Group files into columns by level
+                    const colMap: { [level: number]: string[] } = {};
+                    filesToRender.forEach(f => {
+                      const lvl = levels[f.path] ?? 0;
+                      if (!colMap[lvl]) colMap[lvl] = [];
+                      colMap[lvl].push(f.id);
+                    });
+
+                    const levelKeys = Object.keys(colMap).map(Number).sort((a, b) => a - b);
+                    let maxColSize = 0;
+                    levelKeys.forEach(lvl => {
+                      maxColSize = Math.max(maxColSize, colMap[lvl].length);
+                    });
+
+                    const rowHeight = 90;
+                    const colWidth = 260;
+
+                    levelKeys.forEach((lvl, colIdx) => {
+                      const colFiles = colMap[lvl];
+                      const colHeight = colFiles.length * rowHeight;
+                      const maxHeight = maxColSize * rowHeight;
+                      const startY = 40 + (maxHeight - colHeight) / 2;
+
+                      colFiles.forEach((id, rowIdx) => {
+                        coords[id] = {
+                          x: 50 + colIdx * colWidth,
+                          y: startY + rowIdx * rowHeight
+                        };
+                      });
+                    });
+
+                    // Fallback for safety
                     project.files.forEach((f, idx) => {
                       if (!coords[f.id]) {
-                        coords[f.id] = { x: 240, y: 40 + idx * 80 };
+                        coords[f.id] = { x: 50, y: 40 + idx * rowHeight };
                       }
                     });
 
                     return (
                       <>
                         {/* Render lines */}
-                        {project.files.map((file) => {
+                        {filesToRender.map((file) => {
                           const isVulnerable = file.issues.some(i => !i.applied);
                           const pos = coords[file.id];
                           
@@ -1244,15 +1274,47 @@ Instructions:
 
                                 const lineVulnerable = isVulnerable || targetFile.issues.some(ti => !ti.applied);
 
+                                let x1 = pos.x + 65;
+                                let y1 = pos.y + 18;
+                                let x2 = targetPos.x + 65;
+                                let y2 = targetPos.y + 18;
+                                let pathD = '';
+
+                                if (targetPos.x > pos.x) {
+                                  // Flowing right
+                                  x1 = pos.x + 130;
+                                  x2 = targetPos.x;
+                                  const cx = (x2 - x1) * 0.5;
+                                  pathD = `M ${x1} ${y1} C ${x1 + cx} ${y1}, ${x2 - cx} ${y2}, ${x2} ${y2}`;
+                                } else if (targetPos.x < pos.x) {
+                                  // Flowing left (backwards/circular)
+                                  x1 = pos.x;
+                                  x2 = targetPos.x + 130;
+                                  const cx = (x1 - x2) * 0.5;
+                                  pathD = `M ${x1} ${y1} C ${x1 - cx} ${y1}, ${x2 + cx} ${y2}, ${x2} ${y2}`;
+                                } else {
+                                  // Same column
+                                  if (targetPos.y > pos.y) {
+                                    x1 = pos.x + 65;
+                                    y1 = pos.y + 36;
+                                    x2 = targetPos.x + 65;
+                                    y2 = targetPos.y;
+                                  } else {
+                                    x1 = pos.x + 65;
+                                    y1 = pos.y;
+                                    x2 = targetPos.x + 65;
+                                    y2 = targetPos.y + 36;
+                                  }
+                                  pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
+                                }
+
                                 return (
-                                  <line
+                                  <path
                                     key={`line-${file.id}-${dIdx}`}
-                                    x1={pos.x + 65}
-                                    y1={pos.y + 18}
-                                    x2={targetPos.x}
-                                    y2={targetPos.y + 18}
+                                    d={pathD}
                                     className={`dep-graph-line ${lineVulnerable ? 'affected' : ''}`}
                                     markerEnd={lineVulnerable ? "url(#arrow-vulnerable)" : "url(#arrow)"}
+                                    fill="none"
                                   />
                                 );
                               })}
@@ -1261,7 +1323,7 @@ Instructions:
                         })}
 
                         {/* Render nodes */}
-                        {project.files.map((file) => {
+                        {filesToRender.map((file) => {
                           const hasIssues = file.issues.some(i => !i.applied);
                           const fileAffected = isAffected(file);
                           const pos = coords[file.id];
