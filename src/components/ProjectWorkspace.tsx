@@ -281,6 +281,20 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [activeTab, setActiveTab] = useState<'explorer' | 'ai-agent' | 'dep-graph'>('explorer');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
+
+  const scrollToLine = (lineNum: number) => {
+    setHighlightedLine(lineNum);
+    setTimeout(() => {
+      const element = document.getElementById(`line-${lineNum}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 50);
+    setTimeout(() => {
+      setHighlightedLine(null);
+    }, 2500);
+  };
   const [aiReviewText, setAiReviewText] = useState<string>('');
   const [loadingReview, setLoadingReview] = useState<boolean>(false);
   
@@ -525,6 +539,7 @@ Instructions:
     return lines.map((lineText, idx) => {
       const lineNum = idx + 1;
       const matchingIssue = activeFile.issues.find(issue => issue.line === lineNum && !issue.applied);
+      const isHighlighted = lineNum === highlightedLine;
       
       let lineClass = '';
       if (matchingIssue) {
@@ -532,10 +547,22 @@ Instructions:
         else if (matchingIssue.severity === 'high') lineClass = 'warning';
         else lineClass = 'suggestion';
       }
+      if (isHighlighted) {
+        lineClass += ' line-focused';
+      }
 
       return (
-        <div key={idx} className={`code-line-wrapper ${lineClass}`}>
-          <span className="code-line-number">{lineNum}</span>
+        <div 
+          key={idx} 
+          id={`line-${lineNum}`}
+          className={`code-line-wrapper ${lineClass}`}
+          style={isHighlighted ? {
+            backgroundColor: 'rgba(99, 102, 241, 0.25)',
+            borderLeft: '3px solid #6366f1',
+            transition: 'background-color 0.3s ease, border-left 0.3s ease'
+          } : {}}
+        >
+          <span className="code-line-number" style={isHighlighted ? { color: '#818cf8', fontWeight: 'bold' } : {}}>{lineNum}</span>
           <span className="code-line-content">{lineText}</span>
         </div>
       );
@@ -727,7 +754,39 @@ Instructions:
                           <span className={`severity-badge ${issue.severity}`}>
                             {issue.severity}
                           </span>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Line {issue.line}</span>
+                          <button 
+                            onClick={() => scrollToLine(issue.line)}
+                            style={{ 
+                              fontSize: '11px', 
+                              color: 'var(--text-secondary)', 
+                              background: 'none', 
+                              border: 'none', 
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease',
+                              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                              borderWidth: '1px',
+                              borderStyle: 'solid',
+                              borderColor: 'var(--border-color)'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color = '#818cf8';
+                              e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
+                              e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.08)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color = 'var(--text-secondary)';
+                              e.currentTarget.style.borderColor = 'var(--border-color)';
+                              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
+                            }}
+                            title={`Jump to line ${issue.line}`}
+                          >
+                            Line {issue.line} ↗
+                          </button>
                         </div>
                         <h4 style={{ fontSize: '14px', fontWeight: 600 }}>{issue.type}</h4>
                         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
