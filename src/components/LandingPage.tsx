@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Brain, Layers, Activity, Code, BookOpen } from 'lucide-react';
+import { Shield, Brain, Layers, Activity, Code } from 'lucide-react';
 import { SignInButton, SignUpButton, useAuth } from '@clerk/clerk-react';
 import productPreview from '../assets/product_preview.png';
 

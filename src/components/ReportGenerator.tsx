@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Project, Memory } from '../types';
-import { FileText, Download } from 'lucide-react';
+import { FileText, Download, X } from 'lucide-react';
 
 interface ReportGeneratorProps {
   project: Project;
@@ -17,8 +17,60 @@ export const ReportGenerator: React.FC<ReportGeneratorProps> = ({ project, memor
   const fixedIssues = project.files.flatMap(f => f.issues).filter(i => i.applied);
 
   return (
-    <div className="modal-overlay" style={{ overflowY: 'auto', padding: '40px 20px' }}>
-      <div className="modal-content" style={{ maxWidth: '900px', width: '100%', backgroundColor: '#FFFFFF', color: '#1E293B' }}>
+    <div 
+      className="modal-overlay" 
+      style={{ overflowY: 'auto', padding: '40px 20px', alignItems: 'flex-start' }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="modal-content" 
+        style={{ 
+          maxWidth: '900px', 
+          width: '100%', 
+          backgroundColor: '#FFFFFF', 
+          color: '#1E293B',
+          position: 'relative',
+          margin: '0 auto'
+        }}
+      >
+        {/* Floating Close X Button */}
+        <button
+          onClick={onClose}
+          className="no-print"
+          style={{
+            position: 'absolute',
+            top: '-15px',
+            right: '-15px',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            backgroundColor: '#0F172A',
+            border: '2px solid #374151',
+            color: '#E2E8F0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)',
+            zIndex: 110,
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#1E293B';
+            e.currentTarget.style.transform = 'scale(1.1)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#0F172A';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          title="Close Report"
+        >
+          <X size={16} />
+        </button>
         
         {/* Top Control Bar (Hidden on print) */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E2E8F0', paddingBottom: '16px', marginBottom: '20px' }} className="no-print">

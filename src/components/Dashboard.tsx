@@ -168,8 +168,41 @@ const scanLocal = (code: string, stds: Standard[]): Issue[] => {
 //  Groq AI Scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
-const scanWithGroq = async (name: string, path: string, code: string, stds: Standard[], memories: Memory[]): Promise<Issue[]> => {
-  const key = import.meta.env.VITE_GROQ_API_KEY;
+// Helper function to retry HTTP requests (e.g. for rate-limiting 429 errors or connection drops)
+const fetchWithRetry = async (
+  url: string,
+  options: RequestInit,
+  retries = 3,
+  delayMs = 1500
+): Promise<Response> => {
+  try {
+    const res = await fetch(url, options);
+    if (res.status === 429 && retries > 0) {
+      console.warn(`CodeMind AI: Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+    }
+    return res;
+  } catch (err) {
+    if (retries > 0) {
+      console.warn(`CodeMind AI: Fetch failed. Retrying in ${delayMs}ms... (${retries} retries left)`, err);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+    }
+    throw err;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Groq AI Scanner
+// ─────────────────────────────────────────────────────────────────────────────
+
+const scanWithGroq = async (_name: string, path: string, code: string, stds: Standard[], memories: Memory[]): Promise<Issue[]> => {
+  let key = import.meta.env.VITE_GROQ_API_KEY;
+  const fallbackKey = import.meta.env.VITE_GROQ_API_KEY_FALLBACK;
+  if (!key && fallbackKey) {
+    key = fallbackKey;
+  }
   if (!key) return scanLocal(code, stds);
 
   const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -206,10 +239,11 @@ ${JSON.stringify(cleanMemories)}
 Return ONLY valid JSON: {"issues":[{"line":N,"type":"...","severity":"critical|high|medium","explanation":"...","recommendedFix":"..."}]}
 If nothing found: {"issues":[]}`;
 
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const executeScan = async (apiKey: string): Promise<Response> => {
+    const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+    return await fetchWithRetry(`${baseUrl}/openai/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'system', content: sys }, { role: 'user', content: `File: ${path}\n\n${code.slice(0, 8000)}` }],
@@ -217,7 +251,37 @@ If nothing found: {"issues":[]}`;
         response_format: { type: 'json_object' },
       }),
     });
+  };
+
+  let res: Response;
+  try {
+    res = await executeScan(key);
+  } catch (err) {
+    if (fallbackKey) {
+      console.warn("CodeMind AI: Primary Groq API request threw an error. Retrying with fallback key…", err);
+      try {
+        res = await executeScan(fallbackKey);
+      } catch {
+        return scanLocal(code, stds);
+      }
+    } else {
+      return scanLocal(code, stds);
+    }
+  }
+
+  if (!res.ok) {
+    if (fallbackKey && res.status !== 400) {
+      console.warn(`CodeMind AI: Primary Groq API Key failed with status ${res.status}. Retrying with fallback key…`);
+      try {
+        res = await executeScan(fallbackKey);
+      } catch {
+        return scanLocal(code, stds);
+      }
+    }
     if (!res.ok) return scanLocal(code, stds);
+  }
+
+  try {
     const data = await res.json();
     let txt = data.choices?.[0]?.message?.content ?? '{}';
     const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -710,7 +774,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }
       });
 
-      detectUnusedExports(projectFiles).forEach(({ path, symbol, explanation }) => {
+      detectUnusedExports(projectFiles).forEach(({ path, explanation }) => {
         const f = projectFiles.find(pf => pf.path === path);
         if (f) {
           f.issues.push({ id: mk(), line: 1, type: 'Unused Code', severity: 'medium', applied: false,

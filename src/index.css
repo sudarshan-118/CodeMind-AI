@@ -1358,10 +1358,50 @@ input:checked + .slider:before {
   body {
     background: white !important;
     color: black !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  .app-container, .main-header, .workspace-sidebar, .workspace-right-sidebar, .dep-graph-controls, .nav-links, .btn {
+  
+  /* Hide standard non-printed web app panels */
+  .main-header, 
+  .main-content, 
+  .no-print, 
+  .workspace-sidebar, 
+  .workspace-right-sidebar, 
+  .dep-graph-controls, 
+  .nav-links, 
+  button, 
+  .btn {
     display: none !important;
   }
+
+  /* Make modal print-friendly on A4 */
+  .modal-overlay {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    background: white !important;
+    padding: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+    backdrop-filter: none !important;
+    z-index: auto !important;
+  }
+
+  .modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    color: #1E293B !important;
+  }
+
   .print-report-overlay {
     display: block !important;
     padding: 0 !important;

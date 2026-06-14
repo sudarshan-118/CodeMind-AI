@@ -188,7 +188,16 @@ export const dbService = {
         const files: ProjectFile[] = [];
         if (graphData && graphData.nodes) {
           graphData.nodes.forEach((node: any) => {
-            const fileVulns = vulns?.filter((v: DBVulnerability) => v.file_path === node.id || v.file_path === node.label) || [];
+            // node.path holds the real file path (e.g. "my-repo/src/auth.ts")
+            // node.id holds the client-generated file ID (e.g. "file-proj-1234-0")
+            const filePath = node.path || node.id;
+
+            // Match vulnerabilities by actual file path first, then by node id/label as fallback
+            const fileVulns = vulns?.filter((v: DBVulnerability) =>
+              v.file_path === filePath ||
+              v.file_path === node.id ||
+              v.file_path === node.label
+            ) || [];
             
             const issues: Issue[] = fileVulns.map((v: DBVulnerability) => ({
               id: v.id,
@@ -203,7 +212,8 @@ export const dbService = {
             const fileEdges = graphData.edges?.filter((e: any) => e.source === node.id) || [];
             const dependencies = fileEdges.map((e: any) => {
               const targetNode = graphData.nodes.find((n: any) => n.id === e.target);
-              return targetNode ? targetNode.id : '';
+              // Return the real path of the dependency
+              return targetNode ? (targetNode.path || targetNode.id) : '';
             }).filter((d: string) => d !== '');
 
             const code = node.code || fileVulns[0]?.vulnerability_data?.code_snippet || getMockCodeForFile(node.label);
@@ -212,10 +222,10 @@ export const dbService = {
               id: node.id,
               projectId: p.id,
               name: node.label,
-              path: node.id,
+              path: filePath,
               isDir: node.isDir || false,
               isCode: node.isCode !== undefined ? node.isCode : true,
-              language: node.language || (node.label.includes('.py') ? 'Python' : 'TypeScript'),
+              language: node.language || (node.label.endsWith('.py') ? 'Python' : 'TypeScript'),
               riskState: node.risk || 'safe',
               riskScore: node.riskScore ?? 0,
               size: node.size ?? 0,
@@ -228,11 +238,20 @@ export const dbService = {
           });
         }
 
+        // Derive primary language from actual files (most common language wins)
+        const langCounts = new Map<string, number>();
+        files.filter(f => f.isCode && f.language).forEach(f => {
+          langCounts.set(f.language!, (langCounts.get(f.language!) || 0) + 1);
+        });
+        const primaryLang = langCounts.size > 0
+          ? [...langCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+          : (p.name.includes('.py') || p.description?.includes('Python') ? 'Python' : 'TypeScript');
+
         projectsList.push({
           id: p.id,
           name: p.name,
           description: p.description || '',
-          language: p.name.includes('.py') || p.description?.includes('Python') ? 'Python' : 'TypeScript',
+          language: primaryLang,
           status: 'ready',
           overallScore: latestRev?.overall_score || 80,
           securityScore: latestRev?.security_score || 80,
@@ -427,7 +446,7 @@ export const dbService = {
   },
 
   // 6. Memory Fetching
-  async getProjectMemories(projectId: string, ownerId?: string): Promise<DBMemory[]> {
+  async getProjectMemories(projectId?: string, ownerId?: string): Promise<DBMemory[]> {
     if (hasSupabaseCreds) {
       let query = supabase.from('memories').select('*');
       if (projectId) query = query.eq('project_id', projectId);
@@ -446,7 +465,7 @@ export const dbService = {
   },
 
   // 7. Vulnerabilities Fetching
-  async getHistoricalFindings(projectId: string, ownerId?: string): Promise<DBVulnerability[]> {
+  async getHistoricalFindings(projectId?: string, ownerId?: string): Promise<DBVulnerability[]> {
     if (hasSupabaseCreds) {
       let query = supabase.from('vulnerabilities').select('*');
       if (projectId) query = query.eq('project_id', projectId);
@@ -465,7 +484,7 @@ export const dbService = {
   },
 
   // 8. Reviews Fetching
-  async getReviewHistory(projectId: string, ownerId?: string): Promise<DBReview[]> {
+  async getReviewHistory(projectId?: string, ownerId?: string): Promise<DBReview[]> {
     if (hasSupabaseCreds) {
       let query = supabase.from('reviews').select('*');
       if (projectId) query = query.eq('project_id', projectId);
@@ -490,8 +509,8 @@ export const dbService = {
     architecture_decisions: Array<{ decision: string; reasoning: string }>;
     team_standards: Array<{ rule: string; category: string; keyword: string }>;
   }> {
-    const prevVulns = await this.getHistoricalFindings(projectId, ownerId);
-    const projectMems = await this.getProjectMemories(projectId, ownerId);
+    const prevVulns = await dbService.getHistoricalFindings(projectId, ownerId);
+    const projectMems = await dbService.getProjectMemories(projectId, ownerId);
 
     const successfulFixes = projectMems.filter(
       (m: DBMemory) => m.memory_data?.outcome === 'resolved' || m.memory_data?.outcome === 'successful'
@@ -500,7 +519,7 @@ export const dbService = {
       (m: DBMemory) => m.memory_type === 'architecture'
     );
 
-    const standardsList = await this.getStandards(ownerId);
+    const standardsList = await dbService.getStandards(ownerId);
 
     return {
       historical_issues: prevVulns.map(v => ({
@@ -822,9 +841,12 @@ export const dbService = {
 
   // 13. Activities persistence
   async createActivity(act: Activity, ownerId: string): Promise<string> {
+    // Always persist to localStorage for fast access
     const activities = JSON.parse(localStorage.getItem('codemind_activities') || '[]');
     const newAct = { ...act, ownerId };
-    activities.push(newAct);
+    // Keep only the last 100 activities to avoid bloat
+    activities.unshift(newAct);
+    if (activities.length > 100) activities.splice(100);
     localStorage.setItem('codemind_activities', JSON.stringify(activities));
     return act.id;
   },
@@ -838,9 +860,23 @@ export const dbService = {
   // 14. Memories management
   async createMemoryFromModel(mem: Memory, ownerId: string): Promise<string> {
     if (hasSupabaseCreds) {
+      // Fetch user's first project to associate with this memory to satisfy NOT NULL constraint
+      const { data: projs, error: projErr } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('owner_id', ownerId)
+        .limit(1);
+
+      if (projErr) throw projErr;
+      const firstProjId = projs?.[0]?.id;
+      if (!firstProjId) {
+        throw new Error(`Cannot seed memory "${mem.issue}": No project exists for owner ${ownerId}`);
+      }
+
       const { data, error } = await supabase
         .from('memories')
         .insert({
+          project_id: firstProjId,
           memory_type: 'security',
           title: mem.issue.split(' in ')[0],
           description: mem.recommendation,
@@ -869,7 +905,7 @@ export const dbService = {
 
   async getMemories(ownerId: string): Promise<Memory[]> {
     if (hasSupabaseCreds) {
-      const data = await this.getProjectMemories('', ownerId);
+      const data = await dbService.getProjectMemories(undefined, ownerId);
       return data.map((m: DBMemory) => ({
         id: m.id,
         issue: m.memory_data?.issue_type || m.title,
@@ -949,13 +985,16 @@ export const dbService = {
     const nodes = proj.files.map(f => ({
       id: f.id,
       label: f.name,
+      path: f.path,
       risk: f.issues.some(i => !i.applied) ? f.riskState : 'safe',
+      isDir: f.isDir || false,
+      isCode: f.isCode !== undefined ? f.isCode : true,
+      language: f.language || 'TypeScript',
       riskScore: f.riskScore ?? 0,
       size: f.size ?? 0,
       imports: f.imports || [],
       exports: f.exports || [],
-      code: f.code || '',
-      isDir: f.isDir || false
+      code: f.code || ''
     }));
     const edges = proj.files.flatMap(f => (f.dependencies || []).map(d => ({
       source: f.id,

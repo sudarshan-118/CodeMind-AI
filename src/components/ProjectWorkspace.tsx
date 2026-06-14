@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
-import { Shield, Settings, Play, ArrowLeft, Search, Code, FileText, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle } from 'lucide-react';
 
 interface FileTreeNode {
   name: string;
@@ -296,7 +296,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const activeFile = project.files.find(f => f.id === activeFileId) || project.files[0];
 
   const generateAIReview = async () => {
-    const groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
+    let groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
+    const fallbackKey = import.meta.env.VITE_GROQ_API_KEY_FALLBACK;
+    if (!groqApiKey && fallbackKey) {
+      groqApiKey = fallbackKey;
+    }
     if (!groqApiKey) {
       setAiReviewText("### AI Review Agent (Offline)\n\nGroq API Key is not configured. Please add `VITE_GROQ_API_KEY` to your environment variables to enable dynamic AI reviews.");
       return;
@@ -305,14 +309,16 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     setLoadingReview(true);
     setAiReviewText('');
 
+    const allFindings = project.files.flatMap(f => f.issues.filter(i => !i.applied).map(i => ({
+      file: f.path,
+      line: i.line,
+      issue: i.type,
+      severity: i.severity,
+      explanation: i.explanation,
+      recommendedFix: i.recommendedFix
+    })));
+
     try {
-      const allFindings = project.files.flatMap(f => f.issues.filter(i => !i.applied).map(i => ({
-        file: f.path,
-        line: i.line,
-        issue: i.type,
-        severity: i.severity,
-        explanation: i.explanation
-      })));
 
       const systemPrompt = `You are CodeMind AI, the Engineering Intelligence Review Agent.
 Generate a consolidated high-level project audit review based on the following actual findings from the code:
@@ -334,24 +340,74 @@ Instructions:
 
       const userPrompt = `Generate the audit review report.`;
 
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${groqApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.2
-        })
-      });
+      const executeRequest = async (apiKey: string) => {
+        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        
+        const fetchWithRetry = async (
+          url: string,
+          options: RequestInit,
+          retries = 3,
+          delayMs = 1500
+        ): Promise<Response> => {
+          try {
+            const res = await fetch(url, options);
+            if (res.status === 429 && retries > 0) {
+              console.warn(`CodeMind AI (Workspace): Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+              return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+            }
+            return res;
+          } catch (err) {
+            if (retries > 0) {
+              console.warn(`CodeMind AI (Workspace): Fetch failed. Retrying in ${delayMs}ms... (${retries} retries left)`, err);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+              return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+            }
+            throw err;
+          }
+        };
+
+        return await fetchWithRetry(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.2
+          })
+        });
+      };
+
+      let response: Response;
+      try {
+        response = await executeRequest(groqApiKey);
+      } catch (err) {
+        if (fallbackKey) {
+          console.warn("CodeMind AI: Primary Groq API request threw an error in workspace. Retrying with fallback key…", err);
+          response = await executeRequest(fallbackKey);
+        } else {
+          throw err;
+        }
+      }
 
       if (!response.ok) {
-        throw new Error('Groq API returned an error status: ' + response.status);
+        if (fallbackKey && response.status !== 400) {
+          console.warn(`CodeMind AI: Primary Groq API Key failed with status ${response.status} in workspace. Retrying with fallback key…`);
+          try {
+            response = await executeRequest(fallbackKey);
+          } catch {
+            throw new Error('Groq API returned an error status: ' + response.status);
+          }
+        }
+        if (!response.ok) {
+          throw new Error('Groq API returned an error status: ' + response.status);
+        }
       }
 
       const data = await response.json();
@@ -359,7 +415,38 @@ Instructions:
       setAiReviewText(reviewText);
     } catch (err: any) {
       console.error(err);
-      setAiReviewText(`### Analysis Scan Error\n\nFailed to generate AI Audit Review: ${err.message || err}`);
+      
+      // Local markdown fallback report generator
+      const criticals = allFindings.filter(f => f.severity === 'critical');
+      const highs = allFindings.filter(f => f.severity === 'high');
+      const mediums = allFindings.filter(f => f.severity === 'medium');
+
+      let report = `### AI Audit Intelligence Report (Local Syntactic Summary)\n\n`;
+      report += `⚠️ *Note: Groq API returned an error (${err.message || err}). Providing local analysis based on current scans.*\n\n`;
+      report += `#### 📊 Project Summary\n`;
+      report += `- **Project Name:** ${project.name}\n`;
+      report += `- **Files Scanned:** ${project.files.length}\n`;
+      report += `- **Total Active Findings:** ${allFindings.length}\n`;
+      report += `  - 🔴 Critical: ${criticals.length}\n`;
+      report += `  - 🟠 High: ${highs.length}\n`;
+      report += `  - 🟡 Medium: ${mediums.length}\n\n`;
+
+      if (allFindings.length === 0) {
+        report += `🎉 **Zero vulnerabilities detected!** The codebase complies with standard security and architectural guidelines.\n`;
+      } else {
+        report += `#### 🔍 Key Findings & Recommendations\n\n`;
+        report += `| File | Line | Finding | Severity | Recommendation |\n`;
+        report += `| :--- | :--- | :--- | :--- | :--- |\n`;
+        allFindings.slice(0, 15).forEach((f) => {
+          const fileBase = f.file.split('/').pop() || f.file;
+          report += `| \`${fileBase}\` | ${f.line} | **${f.issue}** | \`${f.severity.toUpperCase()}\` | ${f.explanation.replace(/\|/g, '\\|')} |\n`;
+        });
+        
+        if (allFindings.length > 15) {
+          report += `\n*And ${allFindings.length - 15} more findings... View them in the file explorer sidebar.*`;
+        }
+      }
+      setAiReviewText(report);
     } finally {
       setLoadingReview(false);
     }

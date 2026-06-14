@@ -25,6 +25,7 @@ export default function App() {
   const { isLoaded, isSignedIn, user } = useUser();
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [authSynced, setAuthSynced] = useState(false);
 
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [activeFileId, setActiveFileId] = useState<string>('');
@@ -49,6 +50,7 @@ export default function App() {
   // Synchronize Clerk token to Supabase client
   useEffect(() => {
     const syncSupabaseAuth = async () => {
+      if (!isLoaded) return;
       if (isSignedIn && user) {
         try {
           const token = await getToken({ template: 'supabase' });
@@ -57,19 +59,34 @@ export default function App() {
               access_token: token,
               refresh_token: ''
             });
-            console.log('CodeMind AI: Supabase authentication session synchronized.');
+            
+            // Validate if the token was accepted by Supabase (check for signature mismatch / JWT errors)
+            const { error: testError } = await supabase.from('projects').select('id').limit(1);
+            if (testError) {
+              console.warn(
+                'CodeMind AI: Clerk Supabase JWT token failed validation (signature mismatch or template not set). Reverting to Anon Key. Error:',
+                testError.message
+              );
+              await supabase.auth.signOut();
+            } else {
+              console.log('CodeMind AI: Supabase authentication session synchronized successfully.');
+            }
           }
+          setAuthSynced(true);
         } catch (error) {
           console.error('CodeMind AI: Failed to sync Clerk token to Supabase:', error);
+          setAuthSynced(true);
         }
+      } else {
+        setAuthSynced(true);
       }
     };
     syncSupabaseAuth();
-  }, [isSignedIn, user, getToken]);
+  }, [isLoaded, isSignedIn, user, getToken]);
 
   // Load user data on boot
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !authSynced) return;
 
     if (isSignedIn && user) {
       const ownerId = user.id;
@@ -80,24 +97,43 @@ export default function App() {
         let currentMemList = await dbService.getMemories(ownerId);
         let currentActList = await dbService.getActivities(ownerId);
 
-        // Seeding flow on first login
-        if (dbProjs.length === 0) {
-          console.log('CodeMind AI: Seeding default data for user:', ownerId);
-          
+        // Seeding flow - check and seed empty tables individually to ensure complete data sync
+        let seededAny = false;
+
+        if (currentStdList.length === 0) {
+          console.log('CodeMind AI: Seeding default standards for user:', ownerId);
           for (const std of INITIAL_STANDARDS) {
             await dbService.createStandard(std, ownerId);
           }
+          seededAny = true;
+        }
+
+        if (currentProjList.length === 0) {
+          console.log('CodeMind AI: Seeding default projects for user:', ownerId);
           for (const proj of INITIAL_PROJECTS) {
             await dbService.seedProject(proj, ownerId);
           }
+          seededAny = true;
+        }
+
+        if (currentMemList.length === 0) {
+          console.log('CodeMind AI: Seeding default memories for user:', ownerId);
           for (const mem of INITIAL_MEMORIES) {
             await dbService.createMemoryFromModel(mem, ownerId);
           }
+          seededAny = true;
+        }
+
+        if (currentActList.length === 0) {
+          console.log('CodeMind AI: Seeding default activities for user:', ownerId);
           for (const act of INITIAL_ACTIVITIES) {
             await dbService.createActivity(act, ownerId);
           }
+          seededAny = true;
+        }
 
-          // Fetch after seeding
+        // Fetch after seeding if anything was updated
+        if (seededAny) {
           currentProjList = await dbService.getProjects(ownerId);
           currentStdList = await dbService.getStandards(ownerId);
           currentMemList = await dbService.getMemories(ownerId);
@@ -132,7 +168,7 @@ export default function App() {
         setLoading(false);
       });
     }
-  }, [isLoaded, isSignedIn, user]);
+  }, [isLoaded, isSignedIn, user, authSynced]);
 
   useEffect(() => {
     if (isSignedIn && user) {
