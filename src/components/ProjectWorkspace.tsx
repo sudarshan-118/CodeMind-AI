@@ -558,21 +558,25 @@ Instructions:
           url: string,
           options: RequestInit,
           retries = 3,
-          delayMs = 1500
+          delayMs = 1500,
+          retryOnRateLimit = true
         ): Promise<Response> => {
           try {
             const res = await fetch(url, options);
-            if (res.status === 429 && retries > 0) {
-              console.warn(`CodeMind AI (Workspace): Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-              return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+            if (res.status === 429) {
+              if (retryOnRateLimit && retries > 0) {
+                console.warn(`CodeMind AI (Workspace): Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                return fetchWithRetry(url, options, retries - 1, delayMs * 1.5, retryOnRateLimit);
+              }
+              return res;
             }
             return res;
           } catch (err) {
             if (retries > 0) {
               console.warn(`CodeMind AI (Workspace): Fetch failed. Retrying in ${delayMs}ms... (${retries} retries left)`, err);
               await new Promise(resolve => setTimeout(resolve, delayMs));
-              return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+              return fetchWithRetry(url, options, retries - 1, delayMs * 1.5, retryOnRateLimit);
             }
             throw err;
           }
@@ -592,7 +596,7 @@ Instructions:
             ],
             temperature: 0.2
           })
-        });
+        }, 2, 1000, false);
       };
 
       let response: Response | null = null;

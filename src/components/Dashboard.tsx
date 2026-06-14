@@ -173,21 +173,25 @@ const fetchWithRetry = async (
   url: string,
   options: RequestInit,
   retries = 3,
-  delayMs = 1500
+  delayMs = 1500,
+  retryOnRateLimit = true
 ): Promise<Response> => {
   try {
     const res = await fetch(url, options);
-    if (res.status === 429 && retries > 0) {
-      console.warn(`CodeMind AI: Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+    if (res.status === 429) {
+      if (retryOnRateLimit && retries > 0) {
+        console.warn(`CodeMind AI: Rate limited (429). Retrying in ${delayMs}ms... (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return fetchWithRetry(url, options, retries - 1, delayMs * 1.5, retryOnRateLimit);
+      }
+      return res;
     }
     return res;
   } catch (err) {
     if (retries > 0) {
       console.warn(`CodeMind AI: Fetch failed. Retrying in ${delayMs}ms... (${retries} retries left)`, err);
       await new Promise(resolve => setTimeout(resolve, delayMs));
-      return fetchWithRetry(url, options, retries - 1, delayMs * 1.5);
+      return fetchWithRetry(url, options, retries - 1, delayMs * 1.5, retryOnRateLimit);
     }
     throw err;
   }
@@ -254,7 +258,7 @@ If nothing found: {"issues":[]}`;
         temperature: 0.05,
         response_format: { type: 'json_object' },
       }),
-    });
+    }, 2, 1000, false);
   };
 
   // Select initial key with load balancing
@@ -457,25 +461,45 @@ const fetchGitHubFiles = async (
     log(`⚠️ Large repo: fetching content for first ${RATE_LIMIT}/${codeBlobs.length} code files (GitHub API rate limit). Upload a ZIP for full analysis.`);
   }
 
-  for (let i = 0; i < toFetch.length; i++) {
-    const blob = toFetch[i];
-    try {
-      const r = await fetch(
-        `https://api.github.com/repos/${owner}/${repoName}/contents/${blob.path}?ref=${branch}`,
-        { headers }
-      );
-      if (!r.ok) {
-        files.push({ name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Content unavailable', isCode: true, size: blob.size ?? 0 });
-        continue;
+  // Fetch content for code files in parallel (concurrency limit: 8)
+  const FETCH_CONCURRENCY = 8;
+  const fetchResults: ParsedFile[] = new Array(toFetch.length);
+  let nextFetchIdx = 0;
+
+  const fetchWorker = async () => {
+    while (true) {
+      const index = nextFetchIdx++;
+      if (index >= toFetch.length) break;
+
+      const blob = toFetch[index];
+      try {
+        const r = await fetch(
+          `https://api.github.com/repos/${owner}/${repoName}/contents/${blob.path}?ref=${branch}`,
+          { headers }
+        );
+        if (!r.ok) {
+          fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Content unavailable', isCode: true, size: blob.size ?? 0 };
+          continue;
+        }
+        const c = await r.json();
+        const code = c.content ? atob(c.content.replace(/\n/g, '')) : '// Empty file';
+        fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code, isCode: true, size: blob.size ?? 0 };
+      } catch {
+        fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Fetch error', isCode: true, size: blob.size ?? 0 };
       }
-      const c = await r.json();
-      const code = c.content ? atob(c.content.replace(/\n/g, '')) : '// Empty file';
-      files.push({ name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code, isCode: true, size: blob.size ?? 0 });
-    } catch {
-      files.push({ name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Fetch error', isCode: true, size: blob.size ?? 0 });
+
+      const completedCount = fetchResults.filter(Boolean).length;
+      setProgress(25 + Math.round((completedCount / toFetch.length) * 30));
     }
-    if (i % 5 === 0) setProgress(25 + Math.round(((i + 1) / toFetch.length) * 30));
+  };
+
+  const fetchWorkers = [];
+  for (let w = 0; w < Math.min(FETCH_CONCURRENCY, toFetch.length); w++) {
+    fetchWorkers.push(fetchWorker());
   }
+  await Promise.all(fetchWorkers);
+
+  files.push(...fetchResults);
 
   // Code files beyond fetch limit — tree entry only, no content
   codeBlobs.slice(RATE_LIMIT).forEach(blob => {
@@ -706,8 +730,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
         import.meta.env.VITE_GROQ_API_KEY_4
       );
 
-      if (hasGroq) addLog(`🤖 Groq AI (llama-3.3-70b-versatile) active — deep semantic analysis.`);
-      else addLog(`🔍 Local syntactic scanner active (set VITE_GROQ_API_KEY for AI analysis).`);
+      if (hasGroq) {
+        if (codeFiles.length > 45) {
+          addLog(`🤖 Groq AI active — scanning first 45 core files with AI, and the remaining ${codeFiles.length - 45} files with local syntactic scanner for speed.`);
+        } else {
+          addLog(`🤖 Groq AI (llama-3.3-70b-versatile) active — deep semantic analysis.`);
+        }
+      } else {
+        addLog(`🔍 Local syntactic scanner active (set VITE_GROQ_API_KEY for AI analysis).`);
+      }
 
       const projectFiles: ProjectFile[] = [];
       let filesParsed = 0, filesFailed = 0;
@@ -735,12 +766,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           const f = codeFiles[index];
           const display = f.path.length > 55 ? `…${f.path.slice(-52)}` : f.path;
-          addLog(`${hasGroq ? '🤖' : '🔍'} [${index + 1}/${codeFiles.length}] Started scanning ${display}…`);
+          
+          const isPlaceholder = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable');
+          const isEmpty = !f.code.trim();
+          const useAI = hasGroq && index < 45 && !isPlaceholder && !isEmpty;
+
+          addLog(`${useAI ? '🤖 [AI]' : '🔍 [Local]'} [${index + 1}/${codeFiles.length}] Started scanning ${display}…`);
 
           try {
-            const issues  = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable')
+            const issues  = isPlaceholder || isEmpty
               ? []
-              : await scanWithGroq(f.name, f.path, f.code, standards, memories);
+              : useAI
+                ? await scanWithGroq(f.name, f.path, f.code, standards, memories)
+                : scanLocal(f.code, standards);
 
             const deps    = resolveDeps(f.path, f.code, allPaths);
             const { imports, exports } = extractImportsExports(f.name, f.code);
