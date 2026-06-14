@@ -68,14 +68,60 @@ interface FileTreeNodeProps {
 
 const FileIcon: React.FC<{ name: string }> = ({ name }) => {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  const isEnv = name.startsWith('.env');
-  const isGit = name.startsWith('.git');
+  const isEnv = name.startsWith('.env') || name.includes('.env');
+  const isGit = name.startsWith('.git') || name === '.gitignore';
   
   const style = { marginRight: '6px', width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 };
 
-  if (isEnv || isGit || name === 'package.json' || name === 'tsconfig.json' || name === 'vite.config.ts' || name.includes('config')) {
+  if (name === 'package.json') {
     return (
-      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F05032" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#CB3837" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="rgba(203, 56, 55, 0.1)" />
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+        <line x1="12" y1="22.08" x2="12" y2="12" />
+      </svg>
+    );
+  }
+
+  if (name === 'tsconfig.json') {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#3178C6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="rgba(49, 120, 198, 0.05)" />
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    );
+  }
+
+  if (name.startsWith('vite.config.')) {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#BD34FE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="12 2 2 19.5 22 19.5" fill="rgba(189, 52, 254, 0.1)" />
+        <polygon points="12 7 9 13 12 13 11 17 15 11 12 11" fill="#FFC517" stroke="#FFC517" strokeWidth="1" />
+      </svg>
+    );
+  }
+
+  if (isEnv) {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#EAB308" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.778zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+      </svg>
+    );
+  }
+
+  if (isGit) {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F05032" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 6a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0-12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+        <path d="M6 6v6m0 0a3 3 0 0 0 3 3h6" />
+      </svg>
+    );
+  }
+
+  if (name.includes('config')) {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="3" />
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
       </svg>
@@ -132,12 +178,70 @@ const FileIcon: React.FC<{ name: string }> = ({ name }) => {
         </svg>
       );
     case 'json':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1" />
+          <path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1" />
+        </svg>
+      );
     case 'yaml':
     case 'yml':
-    case 'toml':
       return (
-        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 20c-1.5 0-2.5-1.5-2.5-3V7c0-1.5 1-3 2.5-3m4 0c1.5 0 2.5 1.5 2.5 3v10c0 1.5-1 3-2.5 3m-9-8h10" />
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#E11D48" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" fill="rgba(225, 29, 72, 0.05)" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M8 13v2m4-2l1.5 3m0-3l-1.5 3m-4-3l1 1.5 1-1.5" />
+        </svg>
+      );
+    case 'java':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#E28743" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 18c0 2 4 3 6 3s6-1 6-3M6 15c0 2 4 3 6 3s6-1 6-3M6 12c0 2 4 3 6 3s6-1 6-3" />
+          <path d="M10 2c1 3-2 5-1 8 1 2 4 2 3 4M14 1c1 3-2 5-1 8 1 2 4 2 3 4" stroke="#3776AB" />
+        </svg>
+      );
+    case 'c':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#A8B9CC"/>
+          <text x="50%" y="68%" fill="#323330" fontSize="48" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">C</text>
+        </svg>
+      );
+    case 'h':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#C084FC"/>
+          <text x="50%" y="68%" fill="white" fontSize="48" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">H</text>
+        </svg>
+      );
+    case 'cpp':
+    case 'hpp':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#00599C"/>
+          <text x="50%" y="68%" fill="white" fontSize="44" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">C++</text>
+        </svg>
+      );
+    case 'cs':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#9B4996"/>
+          <text x="50%" y="68%" fill="white" fontSize="44" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">C#</text>
+        </svg>
+      );
+    case 'rs':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#DEA584" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="5" fill="rgba(222, 165, 132, 0.1)" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3m-2.8-6.2l-2.1 2.1m-8.5 8.5l-2.1 2.1m0-12.7l2.1 2.1m8.5 8.5l2.1 2.1" />
+        </svg>
+      );
+    case 'sh':
+    case 'bash':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
       );
     case 'md':
