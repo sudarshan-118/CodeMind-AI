@@ -1,10 +1,10 @@
 import React from 'react';
-import { Shield, Brain, Layers, Activity, Code } from 'lucide-react';
-import { SignInButton, SignUpButton, useAuth } from '@clerk/clerk-react';
+import { Shield, Brain, Layers, Activity, Code, LayoutDashboard, BookOpen } from 'lucide-react';
+import { SignInButton, SignUpButton, useAuth, UserButton } from '@clerk/clerk-react';
 import productPreview from '../assets/product_preview.png';
 
 interface LandingPageProps {
-  onEnterApp: () => void;
+  onEnterApp: (targetView?: 'dashboard' | 'workspace' | 'memories' | 'standards') => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
@@ -22,9 +22,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
           <a href="#features" className="nav-item" style={{ fontSize: '13px' }}>Capabilities</a>
           <a href="#how-it-works" className="nav-item" style={{ fontSize: '13px' }}>Workflow</a>
           {isSignedIn ? (
-            <button className="btn btn-primary" onClick={onEnterApp}>
-              Launch Console
-            </button>
+            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+              <button className="btn btn-primary" onClick={() => onEnterApp('dashboard')}>
+                Launch Console
+              </button>
+              <UserButton afterSignOutUrl="/">
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label="Console"
+                    labelIcon={<LayoutDashboard size={14} />}
+                    onClick={() => onEnterApp('dashboard')}
+                  />
+                  <UserButton.Action
+                    label="Memory Center (History)"
+                    labelIcon={<BookOpen size={14} />}
+                    onClick={() => onEnterApp('memories')}
+                  />
+                </UserButton.MenuItems>
+              </UserButton>
+            </div>
           ) : (
             <>
               <SignInButton mode="modal">
@@ -59,10 +75,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
         <div className="hero-cta">
           {isSignedIn ? (
             <>
-              <button className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={onEnterApp}>
+              <button className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={() => onEnterApp('dashboard')}>
                 Start Analysis
               </button>
-              <button className="btn" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={onEnterApp}>
+              <button className="btn" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={() => onEnterApp('dashboard')}>
                 View Workspace
               </button>
             </>

@@ -672,7 +672,20 @@ import "sync"`
                 Export Audit Report
               </button>
             )}
-            <UserButton afterSignOutUrl="/" />
+            <UserButton afterSignOutUrl="/">
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label="Console"
+                  labelIcon={<LayoutDashboard size={14} />}
+                  onClick={() => setView('dashboard')}
+                />
+                <UserButton.Action
+                  label="Memory Center (History)"
+                  labelIcon={<BookOpen size={14} />}
+                  onClick={() => setView('memories')}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
           </div>
         </header>
       )}
@@ -680,7 +693,7 @@ import "sync"`
       {/* View Router */}
       <main className="main-content">
         {view === 'landing' && (
-          <LandingPage onEnterApp={() => setView('dashboard')} />
+          <LandingPage onEnterApp={(targetView) => setView(targetView || 'dashboard')} />
         )}
         
         {view === 'dashboard' && (
