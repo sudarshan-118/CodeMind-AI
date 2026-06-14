@@ -66,6 +66,108 @@ interface FileTreeNodeProps {
   onSelectFile: (id: string) => void;
 }
 
+const FileIcon: React.FC<{ name: string }> = ({ name }) => {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const isEnv = name.startsWith('.env');
+  const isGit = name.startsWith('.git');
+  
+  const style = { marginRight: '6px', width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 };
+
+  if (isEnv || isGit || name === 'package.json' || name === 'tsconfig.json' || name === 'vite.config.ts' || name.includes('config')) {
+    return (
+      <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F05032" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    );
+  }
+
+  switch (ext) {
+    case 'ts':
+    case 'tsx':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#3178C6"/>
+          <text x="50%" y="68%" fill="white" fontSize="44" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">TS</text>
+        </svg>
+      );
+    case 'js':
+    case 'jsx':
+    case 'mjs':
+    case 'cjs':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#F7DF1E"/>
+          <text x="50%" y="68%" fill="#323330" fontSize="44" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">JS</text>
+        </svg>
+      );
+    case 'html':
+    case 'htm':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 2L4.5 19L12 22L19.5 19L21 2H3ZM18.2 6.5H12V9.3H15.1L14.8 12.3L12 13.1V13.1L9.2 12.3L9 9.8H6.2L6.6 15.1L12 16.6L17.4 15.1L18.2 6.5Z" fill="#E34F26"/>
+        </svg>
+      );
+    case 'css':
+    case 'scss':
+    case 'sass':
+    case 'less':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 2L4.5 19L12 22L19.5 19L21 2H3ZM18.2 6.5L18 9.3H12V12.1H15.1L14.8 15L12 15.8L9.2 15L9 12.1H6.2L6.6 17.8L12 19.3L17.4 17.8L18.2 6.5Z" fill="#1572B6"/>
+        </svg>
+      );
+    case 'py':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M11.95 2C6.42 2 6.55 4.39 6.55 4.39L6.57 6.84H12V7.63H4.22C2.17 7.63 2 9.4 2 9.4V13.73C2 13.73 2.1 15.53 4.22 15.53H6.08V13.88C6.08 11.23 8.35 8.96 11 8.96H17.78V5.53C17.78 5.53 17.9 2 11.95 2ZM14.92 3.61A0.82 0.82 0 1 1 14.92 5.25A0.82 0.82 0 0 1 14.92 3.61Z" fill="#3776AB"/>
+          <path d="M12.05 22C17.58 22 17.45 19.61 17.45 19.61L17.43 17.16H12V16.37H19.78C21.83 16.37 22 14.6 22 14.6V10.27C22 10.27 21.9 8.47 19.78 8.47H17.92V10.12C17.92 12.77 15.65 15.04 13 15.04H6.22V18.47C6.22 18.47 6.1 22 12.05 22ZM9.08 20.39A0.82 0.82 0 1 1 9.08 18.75A0.82 0.82 0 0 1 9.08 20.39Z" fill="#FFE873"/>
+        </svg>
+      );
+    case 'go':
+      return (
+        <svg {...style} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="15" fill="#00ADD8"/>
+          <text x="50%" y="68%" fill="white" fontSize="44" fontWeight="bold" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" textAnchor="middle">GO</text>
+        </svg>
+      );
+    case 'json':
+    case 'yaml':
+    case 'yml':
+    case 'toml':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 20c-1.5 0-2.5-1.5-2.5-3V7c0-1.5 1-3 2.5-3m4 0c1.5 0 2.5 1.5 2.5 3v10c0 1.5-1 3-2.5 3m-9-8h10" />
+        </svg>
+      );
+    case 'md':
+    case 'mdx':
+    case 'txt':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#0086B3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" fill="rgba(0, 134, 179, 0.05)" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M8 13h2v4h-2zm6 0h2v4h-2zm-3 2h2" />
+        </svg>
+      );
+    case 'sql':
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#336791" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3" fill="rgba(51, 103, 145, 0.1)" />
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...style} viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+      );
+  }
+};
+
 const FileTreeNodeComponent: React.FC<FileTreeNodeProps> = ({ node, activeFileId, onSelectFile }) => {
   const [isOpen, setIsOpen] = useState(true);
 
@@ -85,37 +187,14 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeProps> = ({ node, activeFileId
       }
     }
 
-    // Language-aware file icon
-    const ext = node.name.split('.').pop()?.toLowerCase() ?? '';
-    const fileIcon =
-      ['ts','tsx'].includes(ext) ? '🔷' :
-      ['js','jsx','mjs'].includes(ext) ? '🟨' :
-      ext === 'py' ? '🐍' :
-      ext === 'go' ? '🔵' :
-      ['java','kt'].includes(ext) ? '☕' :
-      ['cpp','c','h'].includes(ext) ? '⚙️' :
-      ext === 'cs' ? '💜' :
-      ext === 'rs' ? '🦀' :
-      ext === 'rb' ? '💎' :
-      ext === 'php' ? '🐘' :
-      ext === 'swift' ? '🍎' :
-      ext === 'vue' ? '💚' :
-      ext === 'svelte' ? '🧡' :
-      ['json','yaml','yml','toml'].includes(ext) ? '⚙' :
-      ['md','mdx','txt'].includes(ext) ? '📝' :
-      ['css','scss','sass','less'].includes(ext) ? '🎨' :
-      ['html','htm'].includes(ext) ? '🌐' :
-      ext === 'sql' ? '🗃️' :
-      '📄';
-
     return (
       <div
         className={`file-tree-item ${activeFileId === node.fileId ? 'active' : ''}`}
         style={{ paddingLeft: '8px', cursor: 'pointer', opacity: isNonCode ? 0.7 : 1 }}
         onClick={() => node.fileId && onSelectFile(node.fileId)}
       >
-        <span className="file-label">
-          <span style={{ marginRight: '6px', fontSize: '12px' }}>{fileIcon}</span>
+        <span className="file-label" style={{ display: 'flex', alignItems: 'center' }}>
+          <FileIcon name={node.name} />
           <span style={{ color: textColor, fontSize: '13px' }}>
             {node.name}
             {hasScore && (
@@ -184,7 +263,19 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeProps> = ({ node, activeFileId
           width: '10px',
           textAlign: 'center'
         }}>▶</span>
-        <span style={{ fontSize: '13px' }}>📁</span>
+        <span style={{ display: 'flex', alignItems: 'center', height: '16px', width: '16px' }}>
+          {isOpen ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EAB308" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#EAB308' }}>
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" fill="rgba(234, 179, 8, 0.15)" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EAB308" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#EAB308' }}>
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="rgba(234, 179, 8, 0.15)" />
+            </svg>
+          )}
+        </span>
         <span style={{ fontWeight: 500, fontSize: '13px', color: folderIssueCount > 0 ? folderRiskColor : 'inherit' }}>
           {node.name}
         </span>

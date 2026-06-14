@@ -354,6 +354,7 @@ export default function App() {
       const nodes = newProj.files.map(f => ({
         id: f.id,
         label: f.name,
+        path: f.path,
         risk: f.issues.some(i => !i.applied) ? f.riskState : 'safe',
         isDir: f.isDir,
         isCode: f.isCode,
