@@ -15,6 +15,7 @@ import { useUser, useAuth, UserButton } from '@clerk/clerk-react';
 export default function App() {
   // Navigation View Router
   const [view, setView] = useState<'landing' | 'dashboard' | 'workspace' | 'memories' | 'standards'>('landing');
+  const [autoOpenIngest, setAutoOpenIngest] = useState(false);
 
   // Shared persistent states
   const [projects, setProjects] = useState<Project[]>([]);
@@ -668,7 +669,12 @@ import "sync"`
       {/* View Router */}
       <main className="main-content">
         {view === 'landing' && (
-          <LandingPage onEnterApp={(targetView) => setView(targetView || 'dashboard')} />
+          <LandingPage onEnterApp={(targetView, openIngest) => {
+            setView(targetView || 'dashboard');
+            if (openIngest) {
+              setAutoOpenIngest(true);
+            }
+          }} />
         )}
         
         {view === 'dashboard' && (
@@ -681,6 +687,8 @@ import "sync"`
             onSelectProject={handleSelectProject}
             onImportProject={handleImportProject}
             onAddActivity={handleAddActivity}
+            autoOpenIngest={autoOpenIngest}
+            clearAutoOpenIngest={() => setAutoOpenIngest(false)}
           />
         )}
 

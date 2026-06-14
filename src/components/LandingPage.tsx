@@ -4,7 +4,7 @@ import { SignInButton, SignUpButton, useAuth, UserButton } from '@clerk/clerk-re
 import productPreview from '../assets/product_preview.png';
 
 interface LandingPageProps {
-  onEnterApp: (targetView?: 'dashboard' | 'workspace' | 'memories' | 'standards') => void;
+  onEnterApp: (targetView?: 'dashboard' | 'workspace' | 'memories' | 'standards', autoOpenIngest?: boolean) => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
@@ -75,8 +75,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
         <div className="hero-cta">
           {isSignedIn ? (
             <>
-              <button className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={() => onEnterApp('dashboard')}>
-                Start Analysis
+              <button className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={() => onEnterApp('dashboard', true)}>
+                Ingest Project
               </button>
               <button className="btn" style={{ padding: '12px 24px', fontSize: '14px' }} onClick={() => onEnterApp('dashboard')}>
                 View Workspace
@@ -86,7 +86,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
             <>
               <SignInButton mode="modal">
                 <button className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
-                  Start Analysis
+                  Ingest Project
                 </button>
               </SignInButton>
               <SignInButton mode="modal">

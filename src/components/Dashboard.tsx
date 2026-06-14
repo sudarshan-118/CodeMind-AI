@@ -595,6 +595,8 @@ interface DashboardProps {
   onSelectProject: (id: string) => void;
   onImportProject: (p: Project) => void;
   onAddActivity: (a: Activity) => void;
+  autoOpenIngest?: boolean;
+  clearAutoOpenIngest?: () => void;
 }
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -602,6 +604,7 @@ const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 export const Dashboard: React.FC<DashboardProps> = ({
   projects, memories, activities, analytics, standards,
   onSelectProject, onImportProject, onAddActivity,
+  autoOpenIngest, clearAutoOpenIngest,
 }) => {
   const [showModal,       setShowModal]       = useState(false);
   const [importType,      setImportType]      = useState<'git' | 'zip' | 'folder' | 'file'>('folder');
@@ -611,6 +614,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [logs,            setLogs]            = useState<string[]>([]);
   const [progress,        setProgress]        = useState(0);
   const [selectedFiles,   setSelectedFiles]   = useState<File[]>([]);
+
+  React.useEffect(() => {
+    if (autoOpenIngest) {
+      setShowModal(true);
+      if (clearAutoOpenIngest) {
+        clearAutoOpenIngest();
+      }
+    }
+  }, [autoOpenIngest, clearAutoOpenIngest]);
 
   const addLog = (msg: string) =>
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
