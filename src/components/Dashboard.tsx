@@ -939,60 +939,97 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* Project Cards */}
       <div className="projects-card">
         <div className="card-title">Analyzed Codebases</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
-          {projects.map(proj => {
-            const stats = proj.analysisStats;
-            const findings = proj.files.reduce((a, f) => a + f.issues.filter(i => !i.applied).length, 0);
-            return (
-              <div key={proj.id} style={{
-                backgroundColor: 'rgba(15,23,42,0.4)', border: '1px solid var(--border-color)',
-                borderRadius: '6px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px',
-              }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{proj.name}</h3>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginLeft: '8px' }}>
-                      {proj.language}
-                    </span>
-                  </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.4 }}>{proj.description}</p>
+        {projects.length === 0 ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '48px 24px',
+            backgroundColor: 'rgba(15, 23, 42, 0.2)',
+            border: '1.5px dashed rgba(99, 102, 241, 0.3)',
+            borderRadius: '8px',
+            textAlign: 'center',
+            gap: '16px',
+            marginTop: '12px'
+          }}>
+            <div style={{
+              width: '60px',
+              height: '60px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(99, 102, 241, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <FolderOpen size={28} style={{ color: '#6366f1' }} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#F9FAFB' }}>No Codebases Analyzed Yet</h3>
+              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '6px', maxWidth: '420px', lineHeight: '1.5' }}>
+                Ingest a GitHub repository, upload a ZIP archive, or select a local folder to start your first code intelligence scan.
+              </p>
+            </div>
+            <button className="btn btn-primary" style={{ padding: '10px 24px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setShowModal(true)}>
+              <Plus size={14} /> Start Analysis
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
+            {projects.map(proj => {
+              const stats = proj.analysisStats;
+              const findings = proj.files.reduce((a, f) => a + f.issues.filter(i => !i.applied).length, 0);
+              return (
+                <div key={proj.id} style={{
+                  backgroundColor: 'rgba(15,23,42,0.4)', border: '1px solid var(--border-color)',
+                  borderRadius: '6px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px',
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{proj.name}</h3>
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                        {proj.language}
+                      </span>
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.4 }}>{proj.description}</p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '12px' }}>
-                    {[
-                      { l: 'Files',    v: stats?.totalFilesFound ?? proj.files.length },
-                      { l: 'Folders',  v: stats?.foldersFound ?? '—' },
-                      { l: 'Findings', v: findings },
-                    ].map(kv => (
-                      <div key={kv.l} style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '4px', padding: '6px 8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: kv.l === 'Findings' && Number(kv.v) > 0 ? 'var(--warning-color)' : 'var(--text-primary)' }}>{kv.v}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{kv.l}</div>
-                      </div>
-                    ))}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '12px' }}>
+                      {[
+                        { l: 'Files',    v: stats?.totalFilesFound ?? proj.files.length },
+                        { l: 'Folders',  v: stats?.foldersFound ?? '—' },
+                        { l: 'Findings', v: findings },
+                      ].map(kv => (
+                        <div key={kv.l} style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '4px', padding: '6px 8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: kv.l === 'Findings' && Number(kv.v) > 0 ? 'var(--warning-color)' : 'var(--text-primary)' }}>{kv.v}</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{kv.l}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <GitBranch size={11} /> {proj.branch}
+                      </span>
+                      <span>{(stats?.detectedLanguages ?? []).slice(0, 4).join(', ')}</span>
+                    </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '10px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <GitBranch size={11} /> {proj.branch}
-                    </span>
-                    <span>{(stats?.detectedLanguages ?? []).slice(0, 4).join(', ')}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Health:</span>
+                      <span style={{ fontWeight: 700, fontSize: '15px', color: proj.overallScore > 80 ? 'var(--success-color)' : proj.overallScore > 60 ? 'var(--warning-color)' : 'var(--critical-color)' }}>
+                        {proj.overallScore}%
+                      </span>
+                    </div>
+                    <button className="btn" onClick={() => onSelectProject(proj.id)}>
+                      Open Workspace <Play size={11} style={{ fill: 'currentColor' }} />
+                    </button>
                   </div>
                 </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Health:</span>
-                    <span style={{ fontWeight: 700, fontSize: '15px', color: proj.overallScore > 80 ? 'var(--success-color)' : proj.overallScore > 60 ? 'var(--warning-color)' : 'var(--critical-color)' }}>
-                      {proj.overallScore}%
-                    </span>
-                  </div>
-                  <button className="btn" onClick={() => onSelectProject(proj.id)}>
-                    Open Workspace <Play size={11} style={{ fill: 'currentColor' }} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Ingest Modal */}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Project, Memory, Standard, Activity } from './types';
-import { INITIAL_PROJECTS, INITIAL_ACTIVITIES, INITIAL_MEMORIES, INITIAL_STANDARDS } from './mockData';
+import { INITIAL_STANDARDS } from './mockData';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { ProjectWorkspace } from './components/ProjectWorkspace';
@@ -108,36 +108,9 @@ export default function App() {
           seededAny = true;
         }
 
-        if (currentProjList.length === 0) {
-          console.log('CodeMind AI: Seeding default projects for user:', ownerId);
-          for (const proj of INITIAL_PROJECTS) {
-            await dbService.seedProject(proj, ownerId);
-          }
-          seededAny = true;
-        }
-
-        if (currentMemList.length === 0) {
-          console.log('CodeMind AI: Seeding default memories for user:', ownerId);
-          for (const mem of INITIAL_MEMORIES) {
-            await dbService.createMemoryFromModel(mem, ownerId);
-          }
-          seededAny = true;
-        }
-
-        if (currentActList.length === 0) {
-          console.log('CodeMind AI: Seeding default activities for user:', ownerId);
-          for (const act of INITIAL_ACTIVITIES) {
-            await dbService.createActivity(act, ownerId);
-          }
-          seededAny = true;
-        }
-
         // Fetch after seeding if anything was updated
         if (seededAny) {
-          currentProjList = await dbService.getProjects(ownerId);
           currentStdList = await dbService.getStandards(ownerId);
-          currentMemList = await dbService.getMemories(ownerId);
-          currentActList = await dbService.getActivities(ownerId);
         }
 
         setProjects(currentProjList);
@@ -639,10 +612,12 @@ import "sync"`
             </button>
             <button 
               className={`nav-item ${view === 'workspace' ? 'active' : ''}`}
+              disabled={projects.length === 0}
+              style={projects.length === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
               onClick={() => {
                 if (!activeProjectId && projects.length > 0) {
                   handleSelectProject(projects[0].id);
-                } else {
+                } else if (projects.length > 0) {
                   setView('workspace');
                 }
               }}
