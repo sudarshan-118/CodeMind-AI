@@ -86,27 +86,38 @@ const extractImportsExports = (name: string, code: string) => {
       while ((m = er.exec(code))) exports.push(m[1]);
     } else if (ext === 'py') {
       let m;
-      while ((m = /^import\s+(\w+)/gm.exec(code))) imports.push(m[1]);
-      while ((m = /^from\s+([\w.]+)\s+import/gm.exec(code))) imports.push(m[1]);
-      while ((m = /^(?:def|class)\s+(\w+)/gm.exec(code))) exports.push(m[1]);
+      const pyImp = /^import\s+(\w+)/gm;
+      const pyFrom = /^from\s+([\w.]+)\s+import/gm;
+      const pyDef = /^(?:def|class)\s+(\w+)/gm;
+      while ((m = pyImp.exec(code))) imports.push(m[1]);
+      while ((m = pyFrom.exec(code))) imports.push(m[1]);
+      while ((m = pyDef.exec(code))) exports.push(m[1]);
     } else if (ext === 'go') {
       let m;
-      while ((m = /import\s+"([^"]+)"/g.exec(code))) imports.push(m[1]);
+      const goImp = /import\s+"([^"]+)"/g;
+      const goFunc = /^func\s+(\w+)/gm;
+      while ((m = goImp.exec(code))) imports.push(m[1]);
       const block = code.match(/import\s*\(\s*([\s\S]*?)\)/);
       if (block) block[1].split('\n').forEach(l => { const mm = l.match(/"([^"]+)"/); if (mm) imports.push(mm[1]); });
-      while ((m = /^func\s+(\w+)/gm.exec(code))) { if (m[1][0] === m[1][0].toUpperCase()) exports.push(m[1]); }
+      while ((m = goFunc.exec(code))) { if (m[1][0] === m[1][0].toUpperCase()) exports.push(m[1]); }
     } else if (ext === 'java') {
       let m;
-      while ((m = /import\s+([\w.]+);/g.exec(code))) imports.push(m[1]);
-      while ((m = /public\s+(?:class|interface|enum)\s+(\w+)/g.exec(code))) exports.push(m[1]);
+      const javaImp = /import\s+([\w.]+);/g;
+      const javaClass = /public\s+(?:class|interface|enum)\s+(\w+)/g;
+      while ((m = javaImp.exec(code))) imports.push(m[1]);
+      while ((m = javaClass.exec(code))) exports.push(m[1]);
     } else if (['cpp', 'c', 'h', 'hpp'].includes(ext)) {
       let m;
-      while ((m = /#include\s+["<]([^">]+)[">]/g.exec(code))) imports.push(m[1]);
-      while ((m = /(?:class|struct)\s+(\w+)/g.exec(code))) exports.push(m[1]);
+      const cppInc = /#include\s+["<]([^">]+)[">]/g;
+      const cppClass = /(?:class|struct)\s+(\w+)/g;
+      while ((m = cppInc.exec(code))) imports.push(m[1]);
+      while ((m = cppClass.exec(code))) exports.push(m[1]);
     } else if (ext === 'cs') {
       let m;
-      while ((m = /using\s+([\w.]+);/g.exec(code))) imports.push(m[1]);
-      while ((m = /public\s+(?:class|interface|struct)\s+(\w+)/g.exec(code))) exports.push(m[1]);
+      const csUsg = /using\s+([\w.]+);/g;
+      const csClass = /public\s+(?:class|interface|struct)\s+(\w+)/g;
+      while ((m = csUsg.exec(code))) imports.push(m[1]);
+      while ((m = csClass.exec(code))) exports.push(m[1]);
     }
   } catch { /* ignore */ }
   return { imports: [...new Set(imports)], exports: [...new Set(exports)] };
