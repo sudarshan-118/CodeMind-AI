@@ -583,6 +583,36 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
 }
 
+.ingestion-opt.recommended {
+  border-color: rgba(16, 185, 129, 0.4);
+  position: relative;
+}
+
+.ingestion-opt.recommended::after {
+  content: 'RECOMMENDED';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background-color: #10B981;
+  color: #020617;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.ingestion-opt.recommended:hover {
+  border-color: #10B981;
+  background-color: rgba(16, 185, 129, 0.05);
+}
+
+.ingestion-opt.recommended.selected {
+  border-color: #10B981;
+  background-color: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
 .form-group {
   display: flex;
   flex-direction: column;

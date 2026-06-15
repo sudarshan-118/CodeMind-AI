@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Project, Memory, Standard, Activity } from './types';
-import { INITIAL_STANDARDS } from './mockData';
+import { INITIAL_STANDARDS, INITIAL_MEMORIES } from './mockData';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { ProjectWorkspace } from './components/ProjectWorkspace';
@@ -11,6 +11,71 @@ import { dbService } from './services/db';
 import { supabase } from './supabaseClient';
 import { Brain, LayoutDashboard, Code, BookOpen, ToggleLeft } from 'lucide-react';
 import { useUser, useAuth, UserButton } from '@clerk/clerk-react';
+
+const applyLocalFallbackFix = (code: string, issue: any, fileName: string): string => {
+  // If it's one of the mock files, use the existing hardcoded logic
+  if (fileName === 'auth.ts' && issue.type.toLowerCase().includes('sql')) {
+    return code.replace(
+      /const query = `SELECT \* FROM users WHERE username = '\${username}' AND password = '\${password}'`;/g,
+      '// Parameterized queries resolve SQL Injection\n  const query = "SELECT * FROM users WHERE username = ? AND password = ?";'
+    ).replace(
+      /db\.query\(query, \(err: any, user: any\) => \{/g,
+      'db.query(query, [username, password], (err: any, user: any) => {'
+    );
+  }
+  if (fileName === 'payment.ts' && (issue.type.toLowerCase().includes('stripe') || issue.type.toLowerCase().includes('secret'))) {
+    return code.replace(
+      /const stripeSecretKey = "REDACTED_EXAMPLE_SECRET_KEY_DO_NOT_USE";/g,
+      '// Moved Stripe private token to secure config\nconst stripeSecretKey = process.env.STRIPE_SECRET_KEY;'
+    );
+  }
+  if (fileName === 'database.ts' && issue.type.toLowerCase().includes('singleton')) {
+    return code.replace(
+      /export class DatabaseConnection \{[\s\S]*?public static getInstance\(\): DatabaseConnection \{[\s\S]*?\}[\s\S]*?export const db = DatabaseConnection\.getInstance\(\);/g,
+      `export class DatabaseConnection {
+  constructor() {
+    console.log("Connecting to database...");
+  }
+
+  public query(sql: string, params?: any[] | Function, callback?: Function) {
+    const cb = typeof params === 'function' ? params : callback;
+    console.log(\`Executing query: \${sql}\`);
+    if (cb) cb(null, { id: 1, username: "admin" });
+  }
+}
+
+// Rewritten to use Dependency Injection
+export const db = new DatabaseConnection();`
+    );
+  }
+  if (fileName === 'utils.py' && issue.type.toLowerCase().includes('command')) {
+    return code.replace(
+      /os\.system\("tar -czf backup\.tar\.gz " \+ backup_path\)/g,
+      'subprocess.run(["tar", "-czf", "backup.tar.gz", backup_path], check=True)'
+    ).replace(
+      /import os/g,
+      'import subprocess'
+    );
+  }
+  if (fileName === 'config.py' && issue.type.toLowerCase().includes('credentials')) {
+    return code.replace(
+      /DB_PASS = "admin_super_secret_password_123!"/g,
+      'import os\n# Read credentials from environmental configs\nDB_PASS = os.getenv("PIPELINE_DB_PASSWORD")'
+    );
+  }
+
+  // General fallback replacement:
+  // Split code into lines, replace the line at issue.line (1-indexed) with the recommended fix
+  const lines = code.split('\n');
+  const targetIdx = issue.line - 1;
+  if (targetIdx >= 0 && targetIdx < lines.length) {
+    const fixLines = issue.recommendedFix.split('\n');
+    lines.splice(targetIdx, 1, ...fixLines);
+    return lines.join('\n');
+  }
+
+  return code;
+};
 
 export default function App() {
   // Navigation View Router
@@ -112,6 +177,37 @@ export default function App() {
         // Fetch after seeding if anything was updated
         if (seededAny) {
           currentStdList = await dbService.getStandards(ownerId);
+        }
+
+        let seededMemories = false;
+        if (currentProjList.length > 0 && currentMemList.length === 0) {
+          console.log('CodeMind AI: Seeding default memories for user:', ownerId);
+          for (const mem of INITIAL_MEMORIES) {
+            try {
+              await dbService.saveMemory({
+                project_id: currentProjList[0].id,
+                memory_type: 'security',
+                title: mem.issue.split(' in ')[0],
+                description: mem.recommendation,
+                memory_data: {
+                  issue_type: mem.issue,
+                  severity: 'high',
+                  file: mem.issue.split(' in ')[1] || '',
+                  line: 1,
+                  recommended_fix: mem.fix,
+                  outcome: mem.outcome,
+                  tags: ['seeding']
+                }
+              }, ownerId);
+              seededMemories = true;
+            } catch (seedErr) {
+              console.error('Failed to seed memory on boot:', seedErr);
+            }
+          }
+        }
+
+        if (seededMemories) {
+          currentMemList = await dbService.getMemories(ownerId);
         }
 
         setProjects(currentProjList);
@@ -333,6 +429,7 @@ export default function App() {
         newProj.files.forEach(file => {
           file.issues.forEach(issue => {
             dbService.saveVulnerability({
+              id: issue.id,
               project_id: dbProjId,
               review_id: reviewId,
               file_path: file.path,
@@ -348,6 +445,35 @@ export default function App() {
             }, user?.id || '');
           });
         });
+
+        // Seed default memories if memories is empty
+        if (memories.length === 0) {
+          console.log('CodeMind AI: Seeding default memories on first project import');
+          const seedPromises = INITIAL_MEMORIES.map(mem => 
+            dbService.saveMemory({
+              project_id: dbProjId,
+              memory_type: 'security',
+              title: mem.issue.split(' in ')[0],
+              description: mem.recommendation,
+              memory_data: {
+                issue_type: mem.issue,
+                severity: 'high',
+                file: mem.issue.split(' in ')[1] || '',
+                line: 1,
+                recommended_fix: mem.fix,
+                outcome: mem.outcome,
+                tags: ['seeding']
+              }
+            }, user?.id || '').catch(err => console.error('Error seeding memory:', err))
+          );
+          Promise.all(seedPromises).then(() => {
+            if (user?.id) {
+              dbService.getMemories(user.id).then(dbMems => {
+                setMemories(dbMems);
+              });
+            }
+          });
+        }
       });
 
       // Save dependency graph with full file metadata and content
@@ -390,9 +516,104 @@ export default function App() {
       dbService.createActivity(newAct, user.id);
     }
   };
-
   // Apply Resolution Fix & Save Memory
-  const handleApplyFix = (projId: string, fileId: string, issueId: string) => {
+  const handleApplyFix = async (projId: string, fileId: string, issueId: string) => {
+    const targetProj = projects.find(p => p.id === projId);
+    const targetFile = targetProj?.files.find(f => f.id === fileId);
+    const targetIssue = targetFile?.issues.find(i => i.id === issueId);
+
+    if (!targetIssue || !targetFile || !targetProj) return;
+
+    // Log Activity
+    const actId = `act-${Date.now()}`;
+    const startAct: Activity = {
+      id: actId,
+      text: `Refactoring ${targetFile.name} to resolve "${targetIssue.type}"...`,
+      type: 'info',
+      time: 'Just now',
+      projectId: projId
+    };
+    saveActivities([startAct, ...activities]);
+    if (user?.id) {
+      dbService.createActivity(startAct, user.id);
+    }
+
+    let newCode = targetFile.code || '';
+    let success = false;
+
+    // Try AI dynamic refactoring first if keys are available
+    try {
+      const keys = [
+        import.meta.env.VITE_GROQ_API_KEY,
+        import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+        import.meta.env.VITE_GROQ_API_KEY_3,
+        import.meta.env.VITE_GROQ_API_KEY_4
+      ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+      if (keys.length > 0) {
+        const cleanMemories = memories.slice(0, 10).map(m => ({
+          issue: m.issue,
+          fix: m.fix,
+          recommendation: m.recommendation
+        }));
+
+        const sysPrompt = `You are an expert software engineer and security refactoring agent.
+Your task is to fix a vulnerability in the provided code.
+Vulnerability Details:
+- Issue Type: ${targetIssue.type}
+- Line: ${targetIssue.line}
+- Explanation: ${targetIssue.explanation}
+- Recommended Fix: ${targetIssue.recommendedFix}
+
+Historical Memories of verified fixes:
+${JSON.stringify(cleanMemories)}
+
+Instructions:
+1. Locate the vulnerability in the code (around line ${targetIssue.line}).
+2. Refactor the code to resolve the issue using the recommended fix and learning from the historical memories where applicable.
+3. Keep the rest of the code exactly the same. Do not remove unrelated code.
+4. Return ONLY the complete, raw refactored code. Do NOT wrap it in markdown code blocks, and do not add any comments or explanations outside the code. Just return the code.`;
+
+        const executeAI = async (apiKey: string) => {
+          const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+          const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'llama-3.3-70b-versatile',
+              messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: targetFile.code || '' }],
+              temperature: 0.1,
+            }),
+          });
+          if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+          const data = await res.json();
+          let txt = data.choices?.[0]?.message?.content ?? '';
+          const match = txt.match(/```(?:[a-zA-Z0-9]+)?\s*([\s\S]*?)```/);
+          if (match) txt = match[1];
+          return txt.trim();
+        };
+
+        for (const key of keys) {
+          try {
+            const aiFixedCode = await executeAI(key);
+            if (aiFixedCode && aiFixedCode.length > 10) {
+              newCode = aiFixedCode;
+              success = true;
+              break;
+            }
+          } catch (err) {
+            console.warn("AI fix attempt failed:", err);
+          }
+        }
+      }
+    } catch (aiErr) {
+      console.error("AI dynamic refactoring failed, falling back to local replacement:", aiErr);
+    }
+
+    if (!success) {
+      newCode = applyLocalFallbackFix(targetFile.code || '', targetIssue, targetFile.name);
+    }
+
     const updatedProjList = projects.map(proj => {
       if (proj.id !== projId) return proj;
 
@@ -401,81 +622,9 @@ export default function App() {
 
         const updatedIssues = file.issues.map(issue => {
           if (issue.id !== issueId) return issue;
-
-          // Resolve issue
           return { ...issue, applied: true };
         });
 
-        // Swap code blocks depending on issue type
-        let newCode = file.code || '';
-        const issue = file.issues.find(i => i.id === issueId);
-        
-        if (issue) {
-          if (issue.type.includes('SQL')) {
-            newCode = newCode.replace(
-              /const query = `SELECT \* FROM users WHERE username = '\${username}' AND password = '\${password}'`;/g,
-              '// Parameterized queries resolve SQL Injection\n  const query = "SELECT * FROM users WHERE username = ? AND password = ?";'
-            ).replace(
-              /db\.query\(query, \(err: any, user: any\) => \{/g,
-              'db.query(query, [username, password], (err: any, user: any) => {'
-            );
-          } else if (issue.type.includes('Stripe') || issue.type.includes('Secret')) {
-            newCode = newCode.replace(
-              /const stripeSecretKey = "REDACTED_EXAMPLE_SECRET_KEY_DO_NOT_USE";/g,
-              '// Moved Stripe private token to secure config\nconst stripeSecretKey = process.env.STRIPE_SECRET_KEY;'
-            );
-          } else if (issue.type.includes('Singleton')) {
-            newCode = newCode.replace(
-              /export class DatabaseConnection \{[\s\S]*?public static getInstance\(\): DatabaseConnection \{[\s\S]*?\}[\s\S]*?export const db = DatabaseConnection\.getInstance\(\);/g,
-              `export class DatabaseConnection {
-  constructor() {
-    console.log("Connecting to database...");
-  }
-
-  public query(sql: string, params?: any[] | Function, callback?: Function) {
-    const cb = typeof params === 'function' ? params : callback;
-    console.log(\`Executing query: \${sql}\`);
-    if (cb) cb(null, { id: 1, username: "admin" });
-  }
-}
-
-// Rewritten to use Dependency Injection
-export const db = new DatabaseConnection();`
-            );
-          } else if (issue.type.includes('Command')) {
-            newCode = newCode.replace(
-              /os\.system\("tar -czf backup\.tar\.gz " \+ backup_path\)/g,
-              'subprocess.run(["tar", "-czf", "backup.tar.gz", backup_path], check=True)'
-            ).replace(
-              /import os/g,
-              'import subprocess'
-            );
-          } else if (issue.type.includes('credentials')) {
-            newCode = newCode.replace(
-              /DB_PASS = "admin_super_secret_password_123!"/g,
-              'import os\n# Read credentials from environmental configs\nDB_PASS = os.getenv("PIPELINE_DB_PASSWORD")'
-            );
-          } else if (issue.type.includes('Race')) {
-            newCode = newCode.replace(
-              /var requestHistory = make\(map\[string\]int\)/g,
-              'var mu sync.Mutex\nvar requestHistory = make(map[string]int)'
-            ).replace(
-              /go func\(\) \{\s*requestHistory\[ip\] = requestHistory\[ip\] \+ 1\s*\}\(\)/g,
-              `go func() {
-		mu.Lock()
-		requestHistory[ip] = requestHistory[ip] + 1
-		mu.Unlock()
-	}()`
-            ).replace(
-              /package main/g,
-              `package main
-
-import "sync"`
-            );
-          }
-        }
-
-        // Compute updated riskState
         const stillVulnerable = updatedIssues.some(i => !i.applied);
         const riskState = stillVulnerable ? file.riskState : 'safe';
 
@@ -493,61 +642,54 @@ import "sync"`
       };
     });
 
-    // Recompute scores on updated projects
     const finalProjList = recomputeScores(updatedProjList, standards);
     saveProjects(finalProjList);
 
     // Save resolution as a memory
-    const targetProj = projects.find(p => p.id === projId);
-    const targetFile = targetProj?.files.find(f => f.id === fileId);
-    const targetIssue = targetFile?.issues.find(i => i.id === issueId);
+    const newMemory: Memory = {
+      id: `mem-${Date.now()}`,
+      issue: `${targetIssue.type} detected in ${targetFile.name}`,
+      fix: targetIssue.recommendedFix.split('\n')[0].replace('// ', ''),
+      outcome: `Code Integrity restored. Vulnerability closed in ${targetProj.name}.`,
+      recommendation: `Enforce "${targetIssue.type}" checks in git hooks.`,
+      date: new Date().toISOString().split('T')[0]
+    };
+    saveMemories([newMemory, ...memories]);
 
-    if (targetIssue) {
-      const newMemory: Memory = {
-        id: `mem-${Date.now()}`,
-        issue: `${targetIssue.type} detected in ${targetFile?.name || 'source'}`,
-        fix: targetIssue.recommendedFix.split('\n')[0].replace('// ', ''),
-        outcome: `Code Integrity restored. Vulnerability closed in ${targetProj?.name}.`,
-        recommendation: `Enforce "${targetIssue.type}" checks in git hooks.`,
-        date: new Date().toISOString().split('T')[0]
-      };
-      saveMemories([newMemory, ...memories]);
-
-      // Database service save memory
-      dbService.saveMemory({
-        project_id: projId,
-        memory_type: targetIssue.severity === 'critical' || targetIssue.severity === 'high' ? 'security' : 'architecture',
-        title: targetIssue.type,
-        description: `Vulnerability resolution fix applied to file ${targetFile?.name}`,
-        memory_data: {
-          issue_type: targetIssue.type,
-          severity: targetIssue.severity,
-          file: targetFile?.path || '',
-          line: targetIssue.line,
-          recommended_fix: targetIssue.recommendedFix,
-          outcome: 'resolved',
-          tags: [targetIssue.severity, 'vulnerability-repair']
-        }
-      }, user?.id || '').catch(err => console.error('CodeMind: DB write error during memory save:', err));
-
-      if (user?.id) {
-        dbService.updateVulnerabilityStatus(issueId, 'resolved', user.id).catch(err => {
-          console.error('Error updating vulnerability status in DB:', err);
-        });
+    // Database service save memory
+    dbService.saveMemory({
+      project_id: projId,
+      memory_type: targetIssue.severity === 'critical' || targetIssue.severity === 'high' ? 'security' : 'architecture',
+      title: `${targetIssue.type} detected in ${targetFile.name}`,
+      description: `Enforce "${targetIssue.type}" checks in git hooks.`,
+      memory_data: {
+        issue_type: `${targetIssue.type} detected in ${targetFile.name}`,
+        severity: targetIssue.severity,
+        file: targetFile.path,
+        line: targetIssue.line,
+        recommended_fix: targetIssue.recommendedFix,
+        outcome: `Code Integrity restored. Vulnerability closed in ${targetProj.name}.`,
+        tags: [targetIssue.severity, 'vulnerability-repair']
       }
+    }, user?.id || '').catch(err => console.error('CodeMind: DB write error during memory save:', err));
 
-      // Log success Activity
-      const newAct: Activity = {
-        id: `act-${Date.now()}`,
-        text: `Resolved "${targetIssue.type}" in ${targetFile?.name}. Saved resolution to Memory database.`,
-        type: 'success',
-        time: 'Just now',
-        projectId: projId
-      };
-      saveActivities([newAct, ...activities]);
-      if (user?.id) {
-        dbService.createActivity(newAct, user.id);
-      }
+    if (user?.id) {
+      dbService.updateVulnerabilityStatus(issueId, 'resolved', user.id).catch(err => {
+        console.error('Error updating vulnerability status in DB:', err);
+      });
+    }
+
+    // Log success Activity
+    const newAct: Activity = {
+      id: `act-${Date.now()}`,
+      text: `Resolved "${targetIssue.type}" in ${targetFile.name}. Saved resolution to Memory database.`,
+      type: 'success',
+      time: 'Just now',
+      projectId: projId
+    };
+    saveActivities([newAct, ...activities.filter(a => a.id !== actId)]);
+    if (user?.id) {
+      dbService.createActivity(newAct, user.id);
     }
   };
 

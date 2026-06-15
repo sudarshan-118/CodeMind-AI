@@ -359,21 +359,31 @@ export const dbService = {
       const newId = `mem-${Date.now()}`;
       const memoryEntry: Memory = {
         id: newId,
-        issue: `${memory.memory_data.issue_type} in ${memory.memory_data.file}`,
+        issue: memory.title || `${memory.memory_data.issue_type} in ${memory.memory_data.file}`,
         fix: memory.memory_data.recommended_fix,
         outcome: memory.memory_data.outcome,
-        recommendation: `Enforce standard rules for ${memory.memory_data.issue_type}`,
+        recommendation: memory.description || `Enforce standard rules for ${memory.memory_data.issue_type}`,
         date: new Date().toISOString().split('T')[0],
         matchPercentage: 90,
         ownerId
       };
-      memories.push(memoryEntry);
-      localStorage.setItem('codemind_memories', JSON.stringify(memories));
+      
+      const exists = memories.some((m: any) => m.issue === memoryEntry.issue && m.fix === memoryEntry.fix);
+      if (!exists) {
+        memories.push(memoryEntry);
+        localStorage.setItem('codemind_memories', JSON.stringify(memories));
+      }
       
       // Also save raw memory structure for jsonb emulation
       const rawMems = JSON.parse(localStorage.getItem('codemind_raw_memories') || '[]');
-      rawMems.push({ id: newId, ...memory, owner_id: ownerId, created_at: new Date().toISOString() });
-      localStorage.setItem('codemind_raw_memories', JSON.stringify(rawMems));
+      const rawExists = rawMems.some((m: any) => 
+        m.title === memory.title && 
+        m.memory_data?.recommended_fix === memory.memory_data?.recommended_fix
+      );
+      if (!rawExists) {
+        rawMems.push({ id: newId, ...memory, owner_id: ownerId, created_at: new Date().toISOString() });
+        localStorage.setItem('codemind_raw_memories', JSON.stringify(rawMems));
+      }
 
       return newId;
     }
@@ -381,6 +391,7 @@ export const dbService = {
 
   // 4. Save Vulnerability Issue
   async saveVulnerability(vuln: {
+    id?: string;
     project_id: string;
     review_id?: string;
     file_path: string;
@@ -399,6 +410,7 @@ export const dbService = {
       const { data, error } = await supabase
         .from('vulnerabilities')
         .insert({
+          id: vuln.id,
           project_id: vuln.project_id,
           review_id: vuln.review_id || null,
           file_path: vuln.file_path,
@@ -414,7 +426,7 @@ export const dbService = {
       return data.id;
     } else {
       const vulns = JSON.parse(localStorage.getItem('codemind_vulnerabilities') || '[]');
-      const newId = `vuln-${Date.now()}`;
+      const newId = vuln.id || `vuln-${Date.now()}`;
       vulns.push({ id: newId, ...vuln, owner_id: ownerId, created_at: new Date().toISOString() });
       localStorage.setItem('codemind_vulnerabilities', JSON.stringify(vulns));
       return newId;

@@ -111,56 +111,210 @@ const extractImportsExports = (name: string, code: string) => {
   } catch { /* ignore */ }
   return { imports: [...new Set(imports)], exports: [...new Set(exports)] };
 };
+const mkUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Local Static Scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
-const scanLocal = (code: string, stds: Standard[]): Issue[] => {
+const scanLocal = (code: string, stds: Standard[], memories: Memory[] = [], filePath = ""): Issue[] => {
   const issues: Issue[] = [];
-  const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  code.split('\n').forEach((line, i) => {
+  const mk = () => mkUUID();
+  const fileName = filePath.split('/').pop() || filePath;
+  const lines = code.split('\n');
+
+  lines.forEach((line, i) => {
     const ln = i + 1;
     const nc = !line.trimStart().startsWith('//') && !line.trimStart().startsWith('#');
     if (nc) {
-      if (/(?:api_key|secret|password|passwd|private_key|token)\s*=\s*['"][a-zA-Z0-9_\-+=/]{15,}['"]/i.test(line))
-        issues.push({ id: mk(), line: ln, type: 'Hardcoded API Keys', severity: 'critical', applied: false,
-          explanation: 'Hardcoded secret/token detected. Credentials must never be in source code.',
-          recommendedFix: 'const apiKey = process.env.API_KEY;' });
-      if (/(SELECT|INSERT|UPDATE|DELETE).*\+.*\b/i.test(line) || /(SELECT|INSERT|UPDATE|DELETE).*\$\{.*\}/i.test(line))
-        issues.push({ id: mk(), line: ln, type: 'SQL Injection', severity: 'critical', applied: false,
-          explanation: 'SQL built via string concatenation — injection risk.',
-          recommendedFix: 'db.query("SELECT * FROM t WHERE id = ?", [id])' });
-      if (/\beval\s*\(/.test(line))
-        issues.push({ id: mk(), line: ln, type: 'Unsafe eval()', severity: 'high', applied: false,
-          explanation: 'eval() enables arbitrary code execution.',
-          recommendedFix: '// Replace with JSON.parse() or structured lookups' });
-      if (/os\.system\(|subprocess\.call\(|exec\s*\(|spawn\s*\(/i.test(line))
-        issues.push({ id: mk(), line: ln, type: 'Command Injection', severity: 'high', applied: false,
-          explanation: 'Unsanitized input may reach shell execution.',
-          recommendedFix: 'subprocess.run(["cmd", arg], check=True)' });
-      if (/console\.log\(.*(password|secret|token|key|pwd).*\)/i.test(line))
-        issues.push({ id: mk(), line: ln, type: 'Sensitive Logging', severity: 'medium', applied: false,
-          explanation: 'Credential logged to console — leakage risk.',
-          recommendedFix: '// Remove sensitive parameter from log' });
-      if (/\bmd5\b|\bsha1\b|\bDES\b/i.test(line))
-        issues.push({ id: mk(), line: ln, type: 'Weak Encryption', severity: 'high', applied: false,
-          explanation: 'Deprecated algorithm (MD5/SHA1/DES) detected.',
-          recommendedFix: '// Use SHA-256 / bcrypt / argon2' });
+      // 1. Hardcoded API Keys
+      if (/(?:api_key|secret|password|passwd|private_key|token)\s*=\s*['"][a-zA-Z0-9_\-+=/]{15,}['"]/i.test(line)) {
+        let explanation = 'Hardcoded secret/token detected. Credentials must never be in source code.';
+        let recommendedFix = 'const apiKey = process.env.API_KEY;';
+
+        const match = memories.find(m => 
+          (m.issue.toLowerCase().includes('secret') || m.issue.toLowerCase().includes('key') || m.issue.toLowerCase().includes('credential')) &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          (m.issue.toLowerCase().includes('secret') || m.issue.toLowerCase().includes('key') || m.issue.toLowerCase().includes('credential'))
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'Hardcoded API Keys', severity: 'critical', applied: false, explanation, recommendedFix });
+        }
+      }
+
+      // 2. SQL Injection
+      if (/(SELECT|INSERT|UPDATE|DELETE).*\+.*\b/i.test(line) || /(SELECT|INSERT|UPDATE|DELETE).*\$\{.*\}/i.test(line)) {
+        let explanation = 'SQL built via string concatenation — injection risk.';
+        let recommendedFix = 'db.query("SELECT * FROM t WHERE id = ?", [id])';
+
+        const match = memories.find(m => 
+          m.issue.toLowerCase().includes('sql') &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          m.issue.toLowerCase().includes('sql')
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'SQL Injection', severity: 'critical', applied: false, explanation, recommendedFix });
+        }
+      }
+
+      // 3. Unsafe eval()
+      if (/\beval\s*\(/.test(line)) {
+        let explanation = 'eval() enables arbitrary code execution.';
+        let recommendedFix = '// Replace with JSON.parse() or structured lookups';
+
+        const match = memories.find(m => 
+          m.issue.toLowerCase().includes('eval') &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          m.issue.toLowerCase().includes('eval')
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'Unsafe eval()', severity: 'high', applied: false, explanation, recommendedFix });
+        }
+      }
+
+      // 4. Command Injection
+      if (/os\.system\(|subprocess\.call\(|exec\s*\(|spawn\s*\(/i.test(line)) {
+        let explanation = 'Unsanitized input may reach shell execution.';
+        let recommendedFix = 'subprocess.run(["cmd", arg], check=True)';
+
+        const match = memories.find(m => 
+          m.issue.toLowerCase().includes('command') &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          m.issue.toLowerCase().includes('command')
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'Command Injection', severity: 'high', applied: false, explanation, recommendedFix });
+        }
+      }
+
+      // 5. Sensitive Logging
+      if (/console\.log\(.*(password|secret|token|key|pwd).*\)/i.test(line)) {
+        let explanation = 'Credential logged to console — leakage risk.';
+        let recommendedFix = '// Remove sensitive parameter from log';
+
+        const match = memories.find(m => 
+          (m.issue.toLowerCase().includes('log') || m.issue.toLowerCase().includes('sensitive')) &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          (m.issue.toLowerCase().includes('log') || m.issue.toLowerCase().includes('sensitive'))
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'Sensitive Logging', severity: 'medium', applied: false, explanation, recommendedFix });
+        }
+      }
+
+      // 6. Weak Encryption
+      if (/\bmd5\b|\bsha1\b|\bDES\b/i.test(line)) {
+        let explanation = 'Deprecated algorithm (MD5/SHA1/DES) detected.';
+        let recommendedFix = '// Use SHA-256 / bcrypt / argon2';
+
+        const match = memories.find(m => 
+          (m.issue.toLowerCase().includes('encrypt') || m.issue.toLowerCase().includes('hash') || m.issue.toLowerCase().includes('md5') || m.issue.toLowerCase().includes('sha1')) &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          (m.issue.toLowerCase().includes('encrypt') || m.issue.toLowerCase().includes('hash') || m.issue.toLowerCase().includes('md5') || m.issue.toLowerCase().includes('sha1'))
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: 'Weak Encryption', severity: 'high', applied: false, explanation, recommendedFix });
+        }
+      }
     }
+
     stds.forEach(s => {
       if (!s.enabled || !s.ruleKeyword) return;
-      if (line.toLowerCase().includes(s.ruleKeyword.toLowerCase()) && !issues.some(iss => iss.line === ln && iss.type === s.name))
-        issues.push({ id: mk(), line: ln, type: s.name,
-          severity: s.severity === 'critical' ? 'critical' : 'medium', applied: false,
-          explanation: `Team standard: "${s.description}"`,
-          recommendedFix: `// Refactor per: ${s.description}` });
+      if (line.toLowerCase().includes(s.ruleKeyword.toLowerCase()) && !issues.some(iss => iss.line === ln && iss.type === s.name)) {
+        let explanation = `Team standard: "${s.description}"`;
+        let recommendedFix = `// Refactor per: ${s.description}`;
+
+        const match = memories.find(m => 
+          m.issue.toLowerCase().includes(s.name.toLowerCase()) &&
+          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+        ) || memories.find(m => 
+          m.issue.toLowerCase().includes(s.name.toLowerCase())
+        );
+
+        if (match) {
+          recommendedFix = match.fix;
+          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+        }
+
+        if (!line.includes(recommendedFix)) {
+          issues.push({ id: mk(), line: ln, type: s.name,
+            severity: s.severity === 'critical' ? 'critical' : 'medium', applied: false,
+            explanation, recommendedFix });
+        }
+      }
     });
   });
-  if (code.split('\n').length > 100)
-    issues.push({ id: `${mk()}-large`, line: 1, type: 'Large File', severity: 'medium', applied: false,
-      explanation: `File is ${code.split('\n').length} lines. Consider splitting into modules.`,
-      recommendedFix: '// Decompose into smaller focused modules.' });
+
+  if (lines.length > 100) {
+    let explanation = `File is ${lines.length} lines. Consider splitting into modules.`;
+    let recommendedFix = '// Decompose into smaller focused modules.';
+
+    const match = memories.find(m => 
+      m.issue.toLowerCase().includes('large file') &&
+      (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
+    ) || memories.find(m => 
+      m.issue.toLowerCase().includes('large file')
+    );
+
+    if (match) {
+      recommendedFix = match.fix;
+      explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
+    }
+
+    issues.push({ id: mk(), line: 1, type: 'Large File', severity: 'medium', applied: false, explanation, recommendedFix });
+  }
+
   return issues;
 };
 
@@ -211,9 +365,9 @@ const scanWithGroq = async (_name: string, path: string, code: string, stds: Sta
     import.meta.env.VITE_GROQ_API_KEY_4
   ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
 
-  if (keys.length === 0) return scanLocal(code, stds);
+  if (keys.length === 0) return scanLocal(code, stds, memories, path);
 
-  const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const mk = () => mkUUID();
   const enabled = stds.filter(s => s.enabled);
 
   // Map only the most recent memory records to keep prompt compact and focused
@@ -243,6 +397,12 @@ Team standards to enforce: ${JSON.stringify(enabled.map(s => ({ name: s.name, de
 
 Historical database of previous fixes and resolutions to reference (enforce consistency with these fixes):
 ${JSON.stringify(cleanMemories)}
+
+CRITICAL LEARNING INSTRUCTIONS:
+- You MUST learn from the historical database of previous fixes.
+- For any issue you detect, check if a similar issue exists in the historical database.
+- If a matching memory exists, you MUST suggest the EXACT same recommended fix (or a highly consistent variation of it) and mention "Learned from Memory Center" in the explanation.
+- If the code currently matches the fix or resolution pattern shown in the historical database, the code has already learned and is secure; do NOT flag it as an issue.
 
 Return ONLY valid JSON: {"issues":[{"line":N,"type":"...","severity":"critical|high|medium","explanation":"...","recommendedFix":"..."}]}
 If nothing found: {"issues":[]}`;
@@ -277,7 +437,7 @@ If nothing found: {"issues":[]}`;
         const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
         if (fence) txt = fence[1].trim();
         const parsed = JSON.parse(txt);
-        if (!Array.isArray(parsed.issues)) return scanLocal(code, stds);
+        if (!Array.isArray(parsed.issues)) return scanLocal(code, stds, memories, path);
         return parsed.issues.map((i: Record<string, unknown>) => ({
           id: mk(), line: Number(i.line) || 1,
           type: String(i.type || 'AI Finding'),
@@ -778,7 +938,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               ? []
               : useAI
                 ? await scanWithGroq(f.name, f.path, f.code, standards, memories)
-                : scanLocal(f.code, standards);
+                : scanLocal(f.code, standards, memories, f.path);
 
             const deps    = resolveDeps(f.path, f.code, allPaths);
             const { imports, exports } = extractImportsExports(f.name, f.code);
@@ -822,7 +982,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       projectFiles.push(...results);
 
       // ── 3. Cross-file analysis ───────────────────────────────────────────
-      const mk = () => `iss-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const mk = () => mkUUID();
       addLog(`🔁 Running cross-file analysis…`);
 
       detectCircularDeps(projectFiles.filter(f => f.isCode)).forEach(({ path, cycle }) => {
@@ -1140,7 +1300,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     ['folder', <FolderOpen key="f" size={20} className="logo-icon" />, 'Local Folder'],
                     ['file',   <File key="fi" size={20} className="logo-icon" />,      'Single File'],
                   ] as const).map(([t, icon, label]) => (
-                    <div key={t} className={`ingestion-opt ${importType === t ? 'selected' : ''}`} onClick={() => setImportType(t)}>
+                    <div key={t}
+                      className={`ingestion-opt ${t === 'git' ? 'recommended' : ''} ${importType === t ? 'selected' : ''}`}
+                      onClick={() => setImportType(t)}>
                       {icon}<span>{label}</span>
                     </div>
                   ))}

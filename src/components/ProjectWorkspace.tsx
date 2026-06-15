@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
-import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle, Loader } from 'lucide-react';
 
 interface FileTreeNode {
   name: string;
@@ -463,6 +463,24 @@ interface ProjectWorkspaceProps {
   onBackToDashboard: () => void;
 }
 
+const getSimilarityScore = (issueType: string, memoryIssue: string): number => {
+  const t = issueType.toLowerCase();
+  const m = memoryIssue.toLowerCase();
+  if (t === m) return 100;
+  if (m.includes(t) || t.includes(m)) {
+    const lenRatio = Math.min(t.length, m.length) / Math.max(t.length, m.length);
+    return Math.round(80 + lenRatio * 20);
+  }
+  
+  const words1 = t.split(/[\s_.\-/]+/).filter(w => w.length > 1);
+  const words2 = m.split(/[\s_.\-/]+/).filter(w => w.length > 1);
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const intersection = words1.filter(w => words2.includes(w));
+  const union = [...new Set([...words1, ...words2])];
+  return Math.round((intersection.length / union.length) * 100);
+};
+
 export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   projects,
   activeProjectId,
@@ -474,6 +492,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   onBackToDashboard
 }) => {
   const [activeTab, setActiveTab] = useState<'explorer' | 'ai-agent' | 'dep-graph'>('explorer');
+  const [fixingIssueId, setFixingIssueId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
@@ -686,8 +705,15 @@ Instructions:
       );
 
   // Apply code fix logic
-  const handleApplyFixClick = (issueId: string) => {
-    onApplyFix(project.id, activeFile.id, issueId);
+  const handleApplyFixClick = async (issueId: string) => {
+    setFixingIssueId(issueId);
+    try {
+      await onApplyFix(project.id, activeFile.id, issueId);
+    } catch (err) {
+      console.error("Failed to apply fix:", err);
+    } finally {
+      setFixingIssueId(null);
+    }
   };
 
   // Graph mouse handlers
@@ -940,11 +966,17 @@ Instructions:
                 </div>
               ) : (
                 activeFile.issues.filter(i => !i.applied).map(issue => {
-                  // Find matching hindsight memory based on issue name similarity
-                  const matchMemory = memories.find(m => 
-                    m.issue.toLowerCase().includes(issue.type.toLowerCase()) ||
-                    issue.type.toLowerCase().includes(m.issue.toLowerCase())
-                  );
+                  // Find matching hindsight memories and sort by similarity score
+                  const matches = memories.map(m => {
+                    const score = getSimilarityScore(issue.type, m.issue);
+                    return { memory: m, score };
+                  }).filter(m => m.score > 25)
+                    .sort((a, b) => b.score - a.score);
+
+                  const matchMemory = matches[0]?.memory;
+                  const matchScore = matches[0]?.score || 85;
+
+                  const isFixing = fixingIssueId === issue.id;
 
                   return (
                     <div key={issue.id} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -995,8 +1027,18 @@ Instructions:
                           <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>RECOMMENDED FIX:</span>
                           <pre className="issue-fix-block">{issue.recommendedFix}</pre>
                         </div>
-                        <button className="btn btn-primary" onClick={() => handleApplyFixClick(issue.id)}>
-                          Apply Resolution Fix
+                        <button 
+                          className="btn btn-primary" 
+                          disabled={fixingIssueId !== null} 
+                          onClick={() => handleApplyFixClick(issue.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}
+                        >
+                          {isFixing ? (
+                            <>
+                              <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                              Applying Fix...
+                            </>
+                          ) : 'Apply Resolution Fix'}
                         </button>
                       </div>
 
@@ -1008,7 +1050,7 @@ Instructions:
                               <Brain size={14} />
                               Hindsight Matching
                             </span>
-                            <span className="hindsight-match-badge">{matchMemory.matchPercentage || 87}% Match</span>
+                            <span className="hindsight-match-badge">{matchScore}% Match</span>
                           </div>
                           <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             <div>
@@ -1026,10 +1068,16 @@ Instructions:
                           </div>
                           <button 
                             className="btn btn-success" 
-                            style={{ fontSize: '12px', padding: '6px 12px', marginTop: '6px' }}
+                            style={{ fontSize: '12px', padding: '6px 12px', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}
+                            disabled={fixingIssueId !== null} 
                             onClick={() => handleApplyFixClick(issue.id)}
                           >
-                            Apply Hindsight Fix
+                            {isFixing ? (
+                              <>
+                                <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                                Applying...
+                              </>
+                            ) : 'Apply Hindsight Fix'}
                           </button>
                         </div>
                       )}
