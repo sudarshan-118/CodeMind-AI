@@ -754,6 +754,142 @@ const extractLocalFiles = async (
   return { files: result, foldersFound: folderSet.size };
 };
 
+const extractMemoriesFromCode = async (
+  projectName: string,
+  files: ProjectFile[],
+  memories: Memory[]
+): Promise<Memory[]> => {
+  const extracted: Memory[] = [];
+  const mk = () => mkUUID();
+  const folderName = projectName.split('/').pop() || projectName;
+
+  // 1. Try AI-based extraction if keys are available
+  try {
+    const keys = [
+      import.meta.env.VITE_GROQ_API_KEY,
+      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+      import.meta.env.VITE_GROQ_API_KEY_3,
+      import.meta.env.VITE_GROQ_API_KEY_4
+    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+    if (keys.length > 0) {
+      const coreCodeSummaries = files
+        .filter(f => f.isCode && f.code && f.code.length > 50)
+        .slice(0, 5)
+        .map(f => `File: ${f.path}\nContent:\n${f.code?.slice(0, 1500)}`)
+        .join('\n\n');
+
+      const sys = `You are CodeMind AI, the Hindsight Memory Extractor.
+Your task is to analyze the provided codebase files and identify 1-2 exemplary secure implementations, clean architectural patterns, or properly resolved security issues.
+For each exemplary pattern found, format it as a learned Memory:
+- "issue": The vulnerability or quality issue that WAS avoided or checked (e.g. "SQL Injection check in database.ts", "Exposed Secret avoidance in config.js").
+- "fix": How the secure pattern is implemented in their code (e.g. "Used parameterized query placeholders.", "Loaded API token securely via process.env").
+- "outcome": The positive quality outcome (e.g. "SQL injection neutralized.", "Secrets successfully hidden from git").
+- "recommendation": A general guidance rule to keep enforcing this pattern.
+
+Return ONLY a valid JSON object with the format: {"memories":[{"issue":"...","fix":"...","outcome":"...","recommendation":"..."}]}`;
+
+      const execute = async (apiKey: string) => {
+        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'system', content: sys }, { role: 'user', content: coreCodeSummaries }],
+            temperature: 0.2,
+            response_format: { type: 'json_object' }
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+        const data = await res.json();
+        let txt = data.choices?.[0]?.message?.content ?? '{}';
+        const match = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (match) txt = match[1].trim();
+        return JSON.parse(txt);
+      };
+
+      for (const key of keys) {
+        try {
+          const parsed = await execute(key);
+          if (Array.isArray(parsed.memories)) {
+            parsed.memories.forEach((m: any) => {
+              extracted.push({
+                id: mk(),
+                issue: String(m.issue || 'Secure implementation pattern'),
+                fix: String(m.fix || 'Resolved per best practices'),
+                outcome: String(m.outcome || 'Code integrity verified'),
+                recommendation: String(m.recommendation || 'Continue enforcing this pattern'),
+                date: new Date().toISOString().split('T')[0]
+              });
+            });
+            break;
+          }
+        } catch (err) {
+          console.warn("AI memory extraction attempt failed:", err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("AI memory extraction failed:", err);
+  }
+
+  // 2. Fallback / Complementary Local Regex-based Extraction
+  if (extracted.length === 0) {
+    files.forEach(f => {
+      if (!f.code) return;
+      const fileName = f.name.toLowerCase();
+
+      // Check for clean SQL Parameterization
+      if (f.code.includes('?') && (f.code.includes('SELECT') || f.code.includes('INSERT')) && !f.code.includes('${') && !f.code.includes('+')) {
+        const alreadyExists = memories.some(m => m.issue.toLowerCase().includes('sql') && m.issue.toLowerCase().includes(fileName));
+        if (!alreadyExists) {
+          extracted.push({
+            id: mk(),
+            issue: `Parameterized Query verification in ${f.name} of ${folderName}`,
+            fix: 'Utilized secure binding placeholders (?) in SQL command parameters.',
+            outcome: 'Neutralized SQL Injection risk. Database integrity secured.',
+            recommendation: 'Enforce prepared statements across all database connection queries.',
+            date: new Date().toISOString().split('T')[0]
+          });
+        }
+      }
+
+      // Check for environment credentials usage
+      if ((f.code.includes('process.env') || f.code.includes('os.getenv')) && (fileName.includes('config') || fileName.includes('payment') || fileName.includes('auth') || fileName.includes('db'))) {
+        const alreadyExists = memories.some(m => m.issue.toLowerCase().includes('secret') && m.issue.toLowerCase().includes(fileName));
+        if (!alreadyExists) {
+          extracted.push({
+            id: mk(),
+            issue: `Credential Environment Security check in ${f.name} of ${folderName}`,
+            fix: 'Extracted credentials out of source file into process environment configuration.',
+            outcome: 'Secrets secured from git logs and unauthorized leakage.',
+            recommendation: 'Use dotenv configs and keep raw credentials in vault keys.',
+            date: new Date().toISOString().split('T')[0]
+          });
+        }
+      }
+
+      // Check for clean subprocess command arrays
+      if (f.code.includes('subprocess.run') && f.code.includes('[') && f.code.includes(']') && !f.code.includes('shell=True')) {
+        const alreadyExists = memories.some(m => m.issue.toLowerCase().includes('command') && m.issue.toLowerCase().includes(fileName));
+        if (!alreadyExists) {
+          extracted.push({
+            id: mk(),
+            issue: `Subprocess Security validation in ${f.name} of ${folderName}`,
+            fix: 'Executed command using parameterized argument arrays without subshell evaluation.',
+            outcome: 'Avoided command injection vulnerabilities.',
+            recommendation: 'Strictly avoid passing raw command strings to os.system.',
+            date: new Date().toISOString().split('T')[0]
+          });
+        }
+      }
+    });
+  }
+
+  return extracted.slice(0, 3);
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1015,6 +1151,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       projectFiles.forEach(f => { f.riskScore = computeRisk(f.issues); });
 
+      // 🧠 Extract exemplary secure memories
+      addLog(`🧠 Analyzing codebase to extract secure implementation memories…`);
+      setProgress(85);
+      const extractedMemories = await extractMemoriesFromCode(name, projectFiles, memories);
+      if (extractedMemories.length > 0) {
+        addLog(`🧠 Extracted ${extractedMemories.length} secure code memories from "${name}".`);
+      }
+
       // ── 4. Compute health scores ─────────────────────────────────────────
       setProgress(88);
       addLog(`📊 Computing project health scores…`);
@@ -1034,7 +1178,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const langs = [...new Set(projectFiles.filter(f => f.isCode).map(f => detectLanguage(f.name)))];
       const lines = projectFiles.filter(f => f.isCode).reduce((a, f) => a + (f.code?.split('\n').length ?? 0), 0);
 
-      const newProj: Project = {
+      const newProj: Project & { extractedMemories?: Memory[] } = {
         id:         projId,
         name,
         description: `${parsedFiles.length} files · ${foldersFound} folders · ${lines.toLocaleString()} lines of code`,
@@ -1058,6 +1202,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           analysisDurationMs: Date.now() - startTs,
           totalFindings: totalIssues,
         },
+        extractedMemories
       };
 
       setProgress(100);

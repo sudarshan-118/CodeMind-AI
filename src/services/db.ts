@@ -931,7 +931,11 @@ export const dbService = {
     } else {
       const saved = localStorage.getItem('codemind_memories');
       const memories = saved ? JSON.parse(saved) : INITIAL_MEMORIES;
-      return memories.filter((m: Memory) => !m.ownerId || m.ownerId === ownerId);
+      return memories.filter((m: Memory) => {
+        const isSeed = /^mem-\d$/.test(m.id);
+        if (isSeed) return true;
+        return m.ownerId === ownerId;
+      });
     }
   },
 

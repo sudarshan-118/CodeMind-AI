@@ -376,7 +376,7 @@ export default function App() {
   };
 
   // Ingest Project
-  const handleImportProject = (newProj: Project) => {
+  const handleImportProject = (newProj: Project & { extractedMemories?: Memory[] }) => {
     const newList = [newProj, ...projects];
     // Recompute scores on newly added project
     const recalculated = recomputeScores(newList, standards);
@@ -446,27 +446,58 @@ export default function App() {
           });
         });
 
+        const memoryPromises: Promise<any>[] = [];
+
         // Seed default memories if memories is empty
         if (memories.length === 0) {
           console.log('CodeMind AI: Seeding default memories on first project import');
-          const seedPromises = INITIAL_MEMORIES.map(mem => 
-            dbService.saveMemory({
-              project_id: dbProjId,
-              memory_type: 'security',
-              title: mem.issue.split(' in ')[0],
-              description: mem.recommendation,
-              memory_data: {
-                issue_type: mem.issue,
-                severity: 'high',
-                file: mem.issue.split(' in ')[1] || '',
-                line: 1,
-                recommended_fix: mem.fix,
-                outcome: mem.outcome,
-                tags: ['seeding']
-              }
-            }, user?.id || '').catch(err => console.error('Error seeding memory:', err))
-          );
-          Promise.all(seedPromises).then(() => {
+          INITIAL_MEMORIES.forEach(mem => {
+            memoryPromises.push(
+              dbService.saveMemory({
+                project_id: dbProjId,
+                memory_type: 'security',
+                title: mem.issue.split(' in ')[0],
+                description: mem.recommendation,
+                memory_data: {
+                  issue_type: mem.issue,
+                  severity: 'high',
+                  file: mem.issue.split(' in ')[1] || '',
+                  line: 1,
+                  recommended_fix: mem.fix,
+                  outcome: mem.outcome,
+                  tags: ['seeding']
+                }
+              }, user?.id || '').catch(err => console.error('Error seeding memory:', err))
+            );
+          });
+        }
+
+        // Save extracted memories from the ingested project
+        if (newProj.extractedMemories && newProj.extractedMemories.length > 0) {
+          console.log(`CodeMind AI: Saving ${newProj.extractedMemories.length} extracted memories for project:`, dbProjId);
+          newProj.extractedMemories.forEach(mem => {
+            memoryPromises.push(
+              dbService.saveMemory({
+                project_id: dbProjId,
+                memory_type: 'security',
+                title: mem.issue,
+                description: mem.recommendation,
+                memory_data: {
+                  issue_type: mem.issue,
+                  severity: 'high',
+                  file: mem.issue.split(' in ')[1] || '',
+                  line: 1,
+                  recommended_fix: mem.fix,
+                  outcome: mem.outcome,
+                  tags: ['extracted']
+                }
+              }, user?.id || '').catch(err => console.error('Error saving extracted memory:', err))
+            );
+          });
+        }
+
+        if (memoryPromises.length > 0) {
+          Promise.all(memoryPromises).then(() => {
             if (user?.id) {
               dbService.getMemories(user.id).then(dbMems => {
                 setMemories(dbMems);
@@ -652,7 +683,8 @@ Instructions:
       fix: targetIssue.recommendedFix.split('\n')[0].replace('// ', ''),
       outcome: `Code Integrity restored. Vulnerability closed in ${targetProj.name}.`,
       recommendation: `Enforce "${targetIssue.type}" checks in git hooks.`,
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      ownerId: user?.id || ''
     };
     saveMemories([newMemory, ...memories]);
 
