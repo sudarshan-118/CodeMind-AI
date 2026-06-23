@@ -1,332 +1,205 @@
-# CodeMind AI
+# 🧠 CodeMind AI
 
-> Memory-Powered Engineering Intelligence Platform
+CodeMind AI is an AI-powered interview preparation platform that helps students and job seekers practice interviews, improve communication skills, and receive intelligent feedback through an interactive and user-friendly interface.
 
-CodeMind AI helps engineering teams analyze repositories, identify vulnerabilities, track project health, and build long-term engineering memory.
-
-Unlike traditional code review tools, CodeMind doesn't just analyze code once. It remembers previous findings, successful fixes, architecture decisions, and recurring issues to improve future reviews.
+🌐 **Live Demo:** https://codemindai0.netlify.app/
 
 ---
 
-## Problem
+## 🚀 Features
 
-Engineering teams repeatedly solve the same problems:
-
-- Vulnerabilities reappear across projects
-- Knowledge is lost when team members leave
-- Previous fixes are difficult to find
-- Code reviews happen in isolation
-- Architectural decisions are forgotten
-
-Most tools generate reports.
-
-Very few tools remember what happened before.
+- 🔐 Secure User Authentication
+- 🤖 AI-Powered Interview Question Generation
+- 📝 Real-time Interview Practice
+- 📊 Performance Analysis & Feedback
+- 🎯 Personalized Learning Experience
+- 📱 Responsive Design for Mobile & Desktop
+- ⚡ Fast and Modern User Interface
+- ☁️ Cloud-Based Deployment
 
 ---
 
-## Solution
-
-CodeMind AI introduces a memory layer into the software review process.
-
-Every review generates engineering memories:
-
-```text
-Issue
- ↓
-Fix
- ↓
-Outcome
- ↓
-Recommendation
-```
-
-Future reviews retrieve relevant historical findings and use them to provide smarter recommendations.
-
----
-
-## Key Features
-
-### Repository Analysis
-
-Analyze projects from:
-
-- GitHub Repository URL
-- ZIP Upload
-- Folder Upload
-- Single File Upload
-
----
-
-### Vulnerability Detection
-
-Detect:
-
-- Weak Validation
-- Security Risks
-- Hardcoded Secrets
-- Architecture Violations
-- Code Quality Issues
-- Performance Bottlenecks
-
----
-
-### Interactive Project Explorer
-
-Visualize:
-
-- Folder Structure
-- Source Files
-- Risk Levels
-- Vulnerable Components
-
-Files are highlighted based on severity.
-
-```text
-🔴 Critical
-🟠 High
-🟡 Medium
-🟢 Safe
-```
-
----
-
-### AI Review Agent
-
-Generate:
-
-- Security Review
-- Architecture Review
-- Performance Review
-- Maintainability Review
-- Engineering Recommendations
-
----
-
-### Engineering Memory Center
-
-Store and retrieve:
-
-- Previous Findings
-- Successful Fixes
-- Recurring Issues
-- Historical Vulnerabilities
-- Team Standards
-
----
-
-### Dependency Graph
-
-Visualize relationships between files and services.
-
-```text
-auth.ts
-   ↓
-user.service.ts
-   ↓
-database.ts
-```
-
-Understand how vulnerabilities affect downstream systems.
-
----
-
-### Project Health Scoring
-
-Measure:
-
-- Security
-- Architecture
-- Performance
-- Maintainability
-
-Example:
-
-```text
-Security        92
-Architecture    88
-Performance     81
-Maintainability 90
-
-Overall Score   88
-```
-
----
-
-## How It Works
-
-### 1. Import Project
-
-```text
-GitHub
-ZIP
-Folder
-File
-```
-
-### 2. Analyze Codebase
-
-CodeMind scans:
-
-- Source Files
-- Dependencies
-- Vulnerabilities
-- Architecture Patterns
-
-### 3. Generate Findings
-
-Issues are categorized by severity and impact.
-
-### 4. Store Engineering Memory
-
-Findings become long-term memories.
-
-### 5. Improve Future Reviews
-
-Historical fixes and previous outcomes are used to provide better recommendations.
-
----
-
-## System Architecture
-
-```text
-                 ┌───────────────┐
-                 │   User Input  │
-                 └───────┬───────┘
-                         │
-                         ▼
-          ┌────────────────────────────┐
-          │ Repository Ingestion Layer │
-          └─────────────┬──────────────┘
-                        │
-                        ▼
-          ┌────────────────────────────┐
-          │ Code Analysis Engine       │
-          └─────────────┬──────────────┘
-                        │
-                        ▼
-          ┌────────────────────────────┐
-          │ AI Review Agent (Groq)     │
-          └─────────────┬──────────────┘
-                        │
-                        ▼
-          ┌────────────────────────────┐
-          │ Memory Engine (Hindsight)  │
-          └─────────────┬──────────────┘
-                        │
-                        ▼
-          ┌────────────────────────────┐
-          │ Supabase Storage           │
-          └────────────────────────────┘
-```
-
----
-
-## Tech Stack
+## 🛠️ Tech Stack
 
 ### Frontend
+- React.js
+- JavaScript
+- HTML5
+- CSS3
 
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-
-### Backend
-
+### Backend & Services
 - Supabase
+- Authentication Services
+- Database Management
 
-### Authentication
+### AI Integration
+- Gemini AI / Generative AI APIs
 
-- Clerk
-
-### AI Layer
-
-- Groq API
-
-### Memory Layer
-
-- Hindsight
-
-### Database
-
-- PostgreSQL (Supabase)
-- JSONB Memory Storage
+### Deployment
+- Netlify
 
 ---
 
-## Memory Model
+## 📂 Project Structure
 
-Example Memory:
-
-```json
-{
-  "issue": "Weak Validation",
-  "file": "interviewController.js",
-  "severity": "medium",
-  "fix": "Add input validation middleware",
-  "outcome": "resolved"
-}
+```bash
+CodeMind-AI/
+│
+├── public/
+├── src/
+│   ├── components/
+│   ├── pages/
+│   ├── services/
+│   ├── assets/
+│   └── utils/
+│
+├── package.json
+├── README.md
+└── ...
 ```
 
-Future reviews can retrieve similar memories and recommend proven fixes.
+---
+
+## ⚙️ Installation & Setup
+
+### 1️⃣ Clone the Repository
+
+```bash
+git clone git@github.com:sudarshan-118/CodeMind-AI.git
+```
+
+or
+
+```bash
+git clone https://github.com/sudarshan-118/CodeMind-AI.git
+```
+
+### 2️⃣ Navigate to Project Directory
+
+```bash
+cd CodeMind-AI
+```
+
+### 3️⃣ Install Dependencies
+
+```bash
+npm install
+```
+
+### 4️⃣ Configure Environment Variables
+
+Create a `.env` file in the root directory and add:
+
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_GEMINI_API_KEY=your_gemini_api_key
+```
 
 ---
 
-## Use Cases
+## ▶️ Running the Application
 
-### Engineering Teams
+Start the development server:
 
-Track vulnerabilities and architectural decisions over time.
+```bash
+npm run dev
+```
 
-### Startups
+The application will be available at:
 
-Create institutional knowledge from every review.
-
-### Security Audits
-
-Maintain a searchable history of risks and resolutions.
-
-### Developer Onboarding
-
-Help new engineers understand previous decisions and fixes.
+```bash
+http://localhost:5173
+```
 
 ---
 
-## Future Roadmap
+## 🏗️ Production Build
 
-- Team Collaboration
-- Pull Request Reviews
-- CI/CD Integration
-- GitHub App
-- Automated Fix Suggestions
-- Organization Memory Sharing
-- Advanced Security Audits
+Generate an optimized production build:
 
----
+```bash
+npm run build
+```
 
-## Screenshots
+Preview the production build locally:
 
-### Workspace
-
-Add your best workspace screenshot here.
-
-### Memory Center
-
-Add memory retrieval screenshot here.
-
-### Dependency Graph
-
-Add dependency graph screenshot here.
+```bash
+npm run preview
+```
 
 ---
 
-## Authors
+## 🌍 Deployment
 
-### Sudarshan Desai
+The project is deployed on Netlify.
 
-Built for the Hindsight Hackathon.
+### Live Application
+
+🔗 https://codemindai0.netlify.app/
+
+### Deploy on Netlify
+
+1. Push your code to GitHub.
+2. Connect the repository to Netlify.
+3. Configure environment variables.
+4. Deploy automatically.
 
 ---
 
-## License
+## 🎯 Use Cases
 
-MIT License
+- Interview Preparation
+- Campus Placement Practice
+- Communication Skill Improvement
+- Technical & HR Interview Training
+- Self Assessment & Learning
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome!
+
+1. Fork the repository
+2. Create a feature branch
+
+```bash
+git checkout -b feature-name
+```
+
+3. Commit your changes
+
+```bash
+git commit -m "Added new feature"
+```
+
+4. Push to GitHub
+
+```bash
+git push origin feature-name
+```
+
+5. Open a Pull Request
+
+---
+
+## 👨‍💻 Author
+
+**Sudarshan**
+
+GitHub: https://github.com/sudarshan-118
+
+---
+
+## ⭐ Support
+
+If you found this project useful, consider giving it a ⭐ on GitHub.
+
+It helps the project grow and motivates further development.
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License.
