@@ -77,6 +77,41 @@ export const db = new DatabaseConnection();`
   return code;
 };
 
+const DEFAULT_SUGGESTIONS: Standard[] = [
+  {
+    id: 'sug-1',
+    name: 'Avoid eval() usage',
+    description: 'Executing arbitrary code strings using eval() is a high-risk security hazard.',
+    enabled: true,
+    ruleKeyword: 'eval(',
+    severity: 'critical'
+  },
+  {
+    id: 'sug-2',
+    name: 'No console.log in Production',
+    description: 'Clean up debug statements in production builds to prevent sensitive data leaks.',
+    enabled: true,
+    ruleKeyword: 'console.log',
+    severity: 'warning'
+  },
+  {
+    id: 'sug-3',
+    name: 'Disable SSL Verification Warning',
+    description: 'Connection overrides that set rejectUnauthorized to false bypass secure TLS communication.',
+    enabled: true,
+    ruleKeyword: 'rejectUnauthorized: false',
+    severity: 'critical'
+  },
+  {
+    id: 'sug-4',
+    name: 'Avoid MD5 Cryptography',
+    description: 'Avoid using insecure hashing algorithms like MD5 for password storage or sensitive cryptography.',
+    enabled: true,
+    ruleKeyword: 'md5(',
+    severity: 'critical'
+  }
+];
+
 export default function App() {
   // Navigation View Router
   const [view, setView] = useState<'landing' | 'dashboard' | 'workspace' | 'memories' | 'standards'>('landing');
@@ -87,6 +122,8 @@ export default function App() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [standards, setStandards] = useState<Standard[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<Standard[]>(DEFAULT_SUGGESTIONS);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
 
   const { isLoaded, isSignedIn, user } = useUser();
   const { getToken } = useAuth();
@@ -351,18 +388,23 @@ export default function App() {
   };
 
   const handleAddStandard = (newStd: Standard) => {
-    const updatedStds = [...standards, newStd];
+    // If standard is already added, avoid adding it again
+    if (standards.some(s => s.name.toLowerCase() === newStd.name.toLowerCase() || s.ruleKeyword.toLowerCase() === newStd.ruleKeyword.toLowerCase())) {
+      return;
+    }
+    const cleanStd = { ...newStd, id: newStd.id.startsWith('sug-') ? `std-${Date.now()}` : newStd.id, enabled: true };
+    const updatedStds = [...standards, cleanStd];
     saveStandards(updatedStds);
 
     if (user?.id) {
-      dbService.createStandard(newStd, user.id).catch(err => {
+      dbService.createStandard(cleanStd, user.id).catch(err => {
         console.error('Error creating standard in DB:', err);
       });
     }
 
     const newAct: Activity = {
       id: `act-${Date.now()}`,
-      text: `Enabled new Team standard rule: "${newStd.name}".`,
+      text: `Enabled new Team standard rule: "${cleanStd.name}".`,
       type: 'info',
       time: 'Just now'
     };
@@ -373,6 +415,147 @@ export default function App() {
 
     const updatedProj = recomputeScores(projects, updatedStds);
     saveProjects(updatedProj);
+  };
+
+  const handleDeleteStandard = (stdId: string) => {
+    const updatedStds = standards.filter(s => s.id !== stdId);
+    saveStandards(updatedStds);
+
+    if (user?.id) {
+      dbService.deleteStandard(stdId, user.id).catch(err => {
+        console.error('Error deleting standard in DB:', err);
+      });
+    }
+
+    // Log Activity
+    const deleted = standards.find(s => s.id === stdId);
+    const actText = deleted 
+      ? `Deleted Standard rule: "${deleted.name}".`
+      : 'Deleted architectural standard rule.';
+    
+    const newAct: Activity = {
+      id: `act-${Date.now()}`,
+      text: actText,
+      type: 'warning',
+      time: 'Just now'
+    };
+    saveActivities([newAct, ...activities]);
+    if (user?.id) {
+      dbService.createActivity(newAct, user.id);
+    }
+
+    // Update Project Scores
+    const updatedProj = recomputeScores(projects, updatedStds);
+    saveProjects(updatedProj);
+  };
+
+  const handleGenerateSuggestions = async () => {
+    setIsGeneratingSuggestions(true);
+
+    try {
+      const keys = [
+        import.meta.env.VITE_GROQ_API_KEY,
+        import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+        import.meta.env.VITE_GROQ_API_KEY_3,
+        import.meta.env.VITE_GROQ_API_KEY_4
+      ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+      if (keys.length === 0) {
+        // Fallback: mix of default suggestions and some generated ones
+        const fallbackSuggestions: Standard[] = [
+          ...DEFAULT_SUGGESTIONS,
+          {
+            id: `sug-${Date.now()}-1`,
+            name: 'Avoid Sync File System Calls',
+            description: 'Avoid using synchronous block-execution I/O calls (e.g. readFileSync) in server-side paths.',
+            enabled: true,
+            ruleKeyword: 'readFileSync',
+            severity: 'warning'
+          },
+          {
+            id: `sug-${Date.now()}-2`,
+            name: 'No Hardcoded IP Addresses',
+            description: 'Prevent hardcoded localhost or local network IP addresses in source files.',
+            enabled: true,
+            ruleKeyword: '127.0.0.1',
+            severity: 'warning'
+          }
+        ];
+        setAiSuggestions(fallbackSuggestions);
+        setIsGeneratingSuggestions(false);
+        return;
+      }
+
+      // If we have keys, call AI
+      const projectNames = projects.map(p => p.name);
+      const sysPrompt = `You are a Senior Software Architect and Security Engineer.
+Based on the technologies in the user's projects: ${projectNames.length > 0 ? projectNames.join(', ') : 'React, TypeScript, Node.js, Python'}
+and typical industry best practices, suggest 3 highly relevant and practical "Team Architecture Standards" (rules) that developers should follow.
+
+For each standard, provide:
+1. A clear, concise rule name (e.g. "Avoid eval() function")
+2. A short description explaining why it is needed.
+3. A trigger keyword/pattern to search for in the code (e.g. "eval(").
+4. Severity ('warning' or 'critical').
+
+Return ONLY a valid JSON array of objects with the following format:
+[
+  {
+    "name": "Rule Name",
+    "description": "Rule Description",
+    "ruleKeyword": "keyword_to_match",
+    "severity": "warning"
+  }
+]
+Do not wrap in markdown code blocks, and do not write any other text. Return raw JSON only.`;
+
+      const executeAI = async (apiKey: string) => {
+        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'system', content: sysPrompt }],
+            temperature: 0.7,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+        const data = await res.json();
+        let txt = data.choices?.[0]?.message?.content ?? '';
+        const match = txt.match(/```(?:[a-zA-Z0-9]+)?\s*([\s\S]*?)```/);
+        if (match) txt = match[1];
+        return JSON.parse(txt.trim());
+      };
+
+      let parsed: any[] = [];
+      for (const key of keys) {
+        try {
+          parsed = await executeAI(key);
+          if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+            break;
+          }
+        } catch (err) {
+          console.warn("AI suggestions attempt failed:", err);
+        }
+      }
+
+      if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+        const newSuggestions: Standard[] = parsed.map((item, idx) => ({
+          id: `sug-${Date.now()}-${idx}`,
+          name: item.name || 'Suggested Standard',
+          description: item.description || 'Custom rule suggestion',
+          ruleKeyword: item.ruleKeyword || 'query',
+          severity: item.severity === 'critical' ? 'critical' : 'warning',
+          enabled: true
+        }));
+        setAiSuggestions(newSuggestions);
+      }
+    } catch (error) {
+      console.error("Failed to generate AI suggestions:", error);
+    } finally {
+      setIsGeneratingSuggestions(false);
+    }
   };
 
   // Ingest Project
@@ -889,6 +1072,10 @@ Instructions:
             standards={standards}
             onToggleStandard={handleToggleStandard}
             onAddStandard={handleAddStandard}
+            onDeleteStandard={handleDeleteStandard}
+            aiSuggestions={aiSuggestions}
+            isGeneratingSuggestions={isGeneratingSuggestions}
+            onGenerateSuggestions={handleGenerateSuggestions}
           />
         )}
       </main>

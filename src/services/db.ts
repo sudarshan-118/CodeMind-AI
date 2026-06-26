@@ -851,6 +851,21 @@ export const dbService = {
     }
   },
 
+  async deleteStandard(stdId: string, ownerId: string): Promise<void> {
+    if (hasSupabaseCreds) {
+      const { error } = await supabase
+        .from('team_standards')
+        .delete()
+        .eq('id', stdId)
+        .eq('owner_id', ownerId);
+      if (error) throw error;
+    } else {
+      const standards = JSON.parse(localStorage.getItem('codemind_standards') || '[]');
+      const updated = standards.filter((s: Standard) => s.id !== stdId);
+      localStorage.setItem('codemind_standards', JSON.stringify(updated));
+    }
+  },
+
   // 13. Activities persistence
   async createActivity(act: Activity, ownerId: string): Promise<string> {
     // Always persist to localStorage for fast access
