@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
-import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle, Loader } from 'lucide-react';
+import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw } from 'lucide-react';
 
 interface FileTreeNode {
   name: string;
@@ -459,7 +459,7 @@ interface ProjectWorkspaceProps {
   memories: Memory[];
   onSelectProject: (id: string) => void;
   onSelectFile: (id: string) => void;
-  onApplyFix: (projectId: string, fileId: string, issueId: string) => void;
+  onApplyFix: (projectId: string, fileId: string, issueId: string, customCode?: string) => void;
   onBackToDashboard: () => void;
 }
 
@@ -497,6 +497,20 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
 
+  // Right Sidebar Tab State
+  const [rightActiveTab, setRightActiveTab] = useState<'issues' | 'chatbot'>('issues');
+
+  // Chatbot State
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'ai'; text: string; timestamp: Date }>>([
+    { sender: 'ai', text: "Hello! I am your CodeMind AI Assistant. I can help explain errors, suggest fixes, and walk through your code. Select an error card and click 'Ask AI' to start, or type a custom question below.", timestamp: new Date() }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatContextIssue, setChatContextIssue] = useState<any | null>(null);
+
+  // Advanced Memory Tailored Fix State
+  const [tailoredFixes, setTailoredFixes] = useState<{ [issueId: string]: { code: string; loading: boolean; error?: string } }>({});
+
   const scrollToLine = (lineNum: number) => {
     setHighlightedLine(lineNum);
     setTimeout(() => {
@@ -509,6 +523,241 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       setHighlightedLine(null);
     }, 2500);
   };
+
+  const handleSendChatMessage = async (customMessage?: string) => {
+    const activeProject = projects.find(p => p.id === activeProjectId);
+    if (!activeProject) return;
+
+    const textToSend = customMessage || chatInput;
+    if (!textToSend.trim()) return;
+
+    const userMsg = { sender: 'user' as const, text: textToSend, timestamp: new Date() };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+
+    const keys = [
+      import.meta.env.VITE_GROQ_API_KEY,
+      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+      import.meta.env.VITE_GROQ_API_KEY_3,
+      import.meta.env.VITE_GROQ_API_KEY_4
+    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+    if (keys.length === 0) {
+      setTimeout(() => {
+        setChatMessages(prev => [...prev, {
+          sender: 'ai',
+          text: "⚠️ **Offline Mode:** Groq API keys are not configured. To enable live AI chat, please add your `VITE_GROQ_API_KEY` to the environment configuration.\n\n*However, based on local analysis, you can resolve typical SQL injection issues by using parameterized queries, and hardcoded credentials by moving them to environment files.*",
+          timestamp: new Date()
+        }]);
+        setChatLoading(false);
+      }, 1000);
+      return;
+    }
+
+    try {
+      const issueContextStr = chatContextIssue 
+        ? `\nActive Issue Context:
+- Issue Type: ${chatContextIssue.type}
+- Line: ${chatContextIssue.line}
+- Explanation: ${chatContextIssue.explanation}
+- Recommended Fix: ${chatContextIssue.recommendedFix}`
+        : '';
+
+      const systemPrompt = `You are CodeMind AI Assistant, a professional software engineering intelligence companion.
+You are helping a developer in their workspace.
+
+Project Context:
+- Project Name: ${activeProject.name}
+- Description: ${activeProject.description}
+- Active File: ${activeFile.path}
+- Language: ${activeProject.language}
+
+Active File Code:
+\`\`\`
+${activeFile.code || '// Empty file'}
+\`\`\`
+${issueContextStr}
+
+Instructions:
+1. Provide accurate, professional, and clear assistance.
+2. Directly refer to the code in the active file when answering questions.
+3. If explaining an issue or vulnerability, guide the user on how to resolve it safely using standard guidelines and parameterized queries, database abstraction, or proper configuration.
+4. Keep the explanation concise, clear, and actionable. Format code snippets in markdown code blocks.`;
+
+      const messagesForAPI = [
+        { role: 'system', content: systemPrompt },
+        ...chatMessages.slice(-8).map(m => ({
+          role: m.sender === 'user' ? 'user' as const : 'assistant' as const,
+          content: m.text
+        })),
+        { role: 'user', content: textToSend }
+      ];
+
+      const executeChatRequest = async (apiKey: string) => {
+        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: messagesForAPI,
+            temperature: 0.4
+          })
+        });
+        return res;
+      };
+
+      let response: Response | null = null;
+      let lastError: any = null;
+
+      for (let i = 0; i < keys.length; i++) {
+        try {
+          const res = await executeChatRequest(keys[i]);
+          if (res.ok) {
+            response = res;
+            break;
+          } else {
+            console.warn(`Chatbot: Key ${i + 1} returned status ${res.status}`);
+            lastError = new Error(`HTTP status ${res.status}`);
+          }
+        } catch (err) {
+          console.warn(`Chatbot: Key ${i + 1} failed.`, err);
+          lastError = err;
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw lastError || new Error("All keys failed.");
+      }
+
+      const data = await response.json();
+      const reply = data.choices?.[0]?.message?.content || "Sorry, I couldn't formulate a reply. Please try again.";
+      setChatMessages(prev => [...prev, { sender: 'ai', text: reply, timestamp: new Date() }]);
+    } catch (err: any) {
+      console.error(err);
+      setChatMessages(prev => [...prev, {
+        sender: 'ai',
+        text: `⚠️ **Error:** Failed to connect to AI Agent (${err.message || err}). Please try again or check your API key rotation configuration.`,
+        timestamp: new Date()
+      }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleGenerateTailoredFix = async (issueId: string, issue: any, memory: any) => {
+    setTailoredFixes(prev => ({
+      ...prev,
+      [issueId]: { code: '', loading: true }
+    }));
+
+    const keys = [
+      import.meta.env.VITE_GROQ_API_KEY,
+      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
+      import.meta.env.VITE_GROQ_API_KEY_3,
+      import.meta.env.VITE_GROQ_API_KEY_4
+    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+
+    if (keys.length === 0) {
+      setTailoredFixes(prev => ({
+        ...prev,
+        [issueId]: { code: '', loading: false, error: 'Groq API keys are not configured. Cannot generate dynamic fix.' }
+      }));
+      return;
+    }
+
+    try {
+      const sysPrompt = `You are CodeMind AI's Agentic Memory Refactorer.
+Your task is to take a historical memory fix routine and tailor/rewrite it to fit the *current* code in the active file.
+
+Current File Path: ${activeFile.path}
+Current File Code:
+\`\`\`
+${activeFile.code || ''}
+\`\`\`
+
+Active Issue to Resolve:
+Line ${issue.line}: ${issue.type}
+Explanation: ${issue.explanation}
+
+Matched Historical Memory:
+- Previous Issue: ${memory.issue}
+- Verified Fix: ${memory.fix}
+- Verified Outcome: ${memory.outcome}
+
+Instructions:
+1. Rewrite the recommended fix to match the exact variables, function signatures, imports, and syntax of the current file.
+2. Return ONLY the complete, correct refactored code for the entire file. Do NOT wrap it in markdown code blocks, do not explain anything, do not write comments outside the code. Just return the raw code of the refactored file.`;
+
+      const executeRequest = async (apiKey: string) => {
+        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: sysPrompt },
+              { role: 'user', content: 'Generate the refactored code.' }
+            ],
+            temperature: 0.1
+          })
+        });
+        return res;
+      };
+
+      let response: Response | null = null;
+      let lastError: any = null;
+
+      for (let i = 0; i < keys.length; i++) {
+        try {
+          const res = await executeRequest(keys[i]);
+          if (res.ok) {
+            response = res;
+            break;
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw lastError || new Error("Failed to contact Groq API.");
+      }
+
+      const data = await response.json();
+      let customCode = data.choices?.[0]?.message?.content || '';
+      const match = customCode.match(/```(?:[a-zA-Z0-9]+)?\s*([\s\S]*?)```/);
+      if (match) {
+        customCode = match[1];
+      }
+      customCode = customCode.trim();
+
+      if (customCode.length < 20) {
+        throw new Error("Generated code is too short or empty.");
+      }
+
+      setTailoredFixes(prev => ({
+        ...prev,
+        [issueId]: { code: customCode, loading: false }
+      }));
+
+    } catch (err: any) {
+      console.error(err);
+      setTailoredFixes(prev => ({
+        ...prev,
+        [issueId]: { code: '', loading: false, error: err.message || 'Error refactoring fix.' }
+      }));
+    }
+  };
+
   const [aiReviewText, setAiReviewText] = useState<string>('');
   const [loadingReview, setLoadingReview] = useState<boolean>(false);
   
@@ -547,9 +796,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       explanation: i.explanation,
       recommendedFix: i.recommendedFix
     })));
-
     try {
-
       const systemPrompt = `You are CodeMind AI, the Engineering Intelligence Review Agent.
 Generate a consolidated high-level project audit review based on the following actual findings from the code:
 1. Project Context:
@@ -563,6 +810,8 @@ ${JSON.stringify(memories)}
 
 Instructions:
 - Summarize the overall security, architecture, performance, and maintainability of the codebase.
+- Utilize an extreme "industrial-level optimism" tone: highlight the massive strengths of the codebase, praise the developer's architecture and clean structure, emphasize its scaling potential, and frame any detected issues as exciting opportunities, quick wins, or simple optimizations that can raise the system to world-class standards.
+- Frame all findings in a highly positive, encouraging, and constructive engineering light.
 - Explain the key actual findings detected in the code and suggest remediation strategies referencing the memories.
 - NEVER invent or hallucinate any other vulnerabilities or issues. If no findings are present, praise the clean codebase.
 - Focus strictly on explaining the listed findings. Do not list any other files than those with issues.
@@ -705,10 +954,10 @@ Instructions:
       );
 
   // Apply code fix logic
-  const handleApplyFixClick = async (issueId: string) => {
+  const handleApplyFixClick = async (issueId: string, customCode?: string) => {
     setFixingIssueId(issueId);
     try {
-      await onApplyFix(project.id, activeFile.id, issueId);
+      await onApplyFix(project.id, activeFile.id, issueId, customCode);
     } catch (err) {
       console.error("Failed to apply fix:", err);
     } finally {
@@ -903,10 +1152,11 @@ Instructions:
       <div className="workspace-center">
         {/* Workspace Nav Header */}
         <div className="workspace-navbar">
-          <div className="workspace-tabs">
+          <div className="workspace-tabs" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <button 
               className={`workspace-tab ${activeTab === 'explorer' ? 'active' : ''}`}
               onClick={() => setActiveTab('explorer')}
+              style={{ fontSize: '13.5px', padding: '8px 18px', fontWeight: 600 }}
             >
               <Code size={14} style={{ marginRight: '6px', display: 'inline' }} />
               File Explorer
@@ -914,16 +1164,20 @@ Instructions:
             <button 
               className={`workspace-tab ${activeTab === 'ai-agent' ? 'active' : ''}`}
               onClick={() => setActiveTab('ai-agent')}
+              style={{ fontSize: '13.5px', padding: '8px 18px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Brain size={14} style={{ marginRight: '6px', display: 'inline' }} />
+              <Brain size={14} />
               AI Agent Review
+              <span className="severity-badge" style={{ backgroundColor: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', fontSize: '9px', padding: '1px 6px', fontWeight: 700 }}>🤖 Agent</span>
             </button>
             <button 
               className={`workspace-tab ${activeTab === 'dep-graph' ? 'active' : ''}`}
               onClick={() => setActiveTab('dep-graph')}
+              style={{ fontSize: '13.5px', padding: '8px 18px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Share2 size={14} style={{ marginRight: '6px', display: 'inline' }} />
+              <Share2 size={14} />
               Dependency Graph
+              <span className="severity-badge" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', fontSize: '9px', padding: '1px 6px', fontWeight: 700 }}>📊 Visual</span>
             </button>
           </div>
 
@@ -952,138 +1206,361 @@ Instructions:
               </div>
             </div>
 
-            {/* Right Sidebar: Issues & Hindsight */}
+            {/* Right Sidebar: Issues & Hindsight / Chatbot */}
             <div className="workspace-right-sidebar">
-              <h3 style={{ fontSize: '14px', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                Intelligence Inspector
-              </h3>
+              {/* Sidebar Tabs */}
+              <div className="sidebar-tabs">
+                <button 
+                  className={`sidebar-tab ${rightActiveTab === 'issues' ? 'active' : ''}`}
+                  onClick={() => setRightActiveTab('issues')}
+                >
+                  <CheckCircle size={12} />
+                  Inspector
+                </button>
+                <button 
+                  className={`sidebar-tab ${rightActiveTab === 'chatbot' ? 'active' : ''}`}
+                  onClick={() => setRightActiveTab('chatbot')}
+                >
+                  <MessageSquare size={12} />
+                  AI Assistant
+                </button>
+              </div>
 
-              {activeFile.issues.filter(i => !i.applied).length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-                  <CheckCircle size={32} style={{ color: 'var(--success-color)', marginBottom: '12px', margin: '0 auto 12px auto' }} />
-                  <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>File is Clean</p>
-                  <p style={{ fontSize: '12px', marginTop: '4px' }}>No active security or architectural violations detected.</p>
-                </div>
-              ) : (
-                activeFile.issues.filter(i => !i.applied).map(issue => {
-                  // Find matching hindsight memories and sort by similarity score
-                  const matches = memories.map(m => {
-                    const score = getSimilarityScore(issue.type, m.issue);
-                    return { memory: m, score };
-                  }).filter(m => m.score > 25)
-                    .sort((a, b) => b.score - a.score);
+              {rightActiveTab === 'issues' ? (
+                <>
+                  <h3 style={{ fontSize: '14px', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Intelligence Inspector</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{activeFile.issues.filter(i => !i.applied).length} Active</span>
+                  </h3>
 
-                  const matchMemory = matches[0]?.memory;
-                  const matchScore = matches[0]?.score || 85;
+                  {activeFile.issues.filter(i => !i.applied).length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
+                      <CheckCircle size={32} style={{ color: 'var(--success-color)', marginBottom: '12px', margin: '0 auto 12px auto' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>File is Clean</p>
+                      <p style={{ fontSize: '12px', marginTop: '4px' }}>No active security or architectural violations detected.</p>
+                    </div>
+                  ) : (
+                    activeFile.issues.filter(i => !i.applied).map(issue => {
+                      const matches = memories.map(m => {
+                        const score = getSimilarityScore(issue.type, m.issue);
+                        return { memory: m, score };
+                      }).filter(m => m.score > 25)
+                        .sort((a, b) => b.score - a.score);
 
-                  const isFixing = fixingIssueId === issue.id;
+                      const matchMemory = matches[0]?.memory;
+                      const matchScore = matches[0]?.score || 85;
+                      const isFixing = fixingIssueId === issue.id;
 
-                  return (
-                    <div key={issue.id} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div className="issue-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span className={`severity-badge ${issue.severity}`}>
-                            {issue.severity}
-                          </span>
-                          <button 
+                      return (
+                        <div key={issue.id} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <div 
+                            className="issue-card clickable" 
                             onClick={() => scrollToLine(issue.line)}
-                            style={{ 
-                              fontSize: '11px', 
-                              color: 'var(--text-secondary)', 
-                              background: 'none', 
-                              border: 'none', 
-                              cursor: 'pointer',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              transition: 'all 0.15s ease',
-                              backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                              borderWidth: '1px',
-                              borderStyle: 'solid',
-                              borderColor: 'var(--border-color)'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color = '#818cf8';
-                              e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
-                              e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.08)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = 'var(--text-secondary)';
-                              e.currentTarget.style.borderColor = 'var(--border-color)';
-                              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
-                            }}
-                            title={`Jump to line ${issue.line}`}
                           >
-                            Line {issue.line} ↗
-                          </button>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                              <span className={`severity-badge ${issue.severity}`}>
+                                {issue.severity}
+                              </span>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); scrollToLine(issue.line); }}
+                                  style={{ 
+                                    fontSize: '11px', 
+                                    color: 'var(--text-secondary)', 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    cursor: 'pointer',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.15s ease',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                    borderWidth: '1px',
+                                    borderStyle: 'solid',
+                                    borderColor: 'var(--border-color)'
+                                  }}
+                                >
+                                  Line {issue.line} ↗
+                                </button>
+                              </div>
+                            </div>
+                            <h4 style={{ fontSize: '14px', fontWeight: 600 }}>{issue.type}</h4>
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                              {issue.explanation}
+                            </p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>RECOMMENDED FIX:</span>
+                              <pre className="issue-fix-block">{issue.recommendedFix}</pre>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }} onClick={(e) => e.stopPropagation()}>
+                              <button 
+                                className="btn btn-primary"
+                                disabled={fixingIssueId !== null}
+                                onClick={() => {
+                                  setChatContextIssue(issue);
+                                  setRightActiveTab('chatbot');
+                                  setChatMessages(prev => [
+                                    ...prev,
+                                    { sender: 'user', text: `Explain the "${issue.type}" issue on line ${issue.line} in detail and show me how to fix it.`, timestamp: new Date() }
+                                  ]);
+                                  handleSendChatMessage(`Explain the "${issue.type}" issue on line ${issue.line} in detail and show me how to fix it.`);
+                                }}
+                                style={{ 
+                                  flex: 1.6, 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '6px', 
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  padding: '8px 12px',
+                                  fontWeight: 600,
+                                  background: 'linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%)',
+                                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                                  boxShadow: '0 0 10px rgba(99, 102, 241, 0.15)'
+                                }}
+                              >
+                                <MessageSquare size={13} />
+                                Ask AI Assistant
+                              </button>
+
+                              <button 
+                                className="btn" 
+                                disabled={fixingIssueId !== null} 
+                                onClick={() => handleApplyFixClick(issue.id)}
+                                style={{ 
+                                  flex: 1, 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '6px', 
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  padding: '8px 12px',
+                                  borderColor: 'var(--border-color)',
+                                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                  color: 'var(--text-secondary)',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {isFixing ? (
+                                  <>
+                                    <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                                    Applying...
+                                  </>
+                                ) : 'Apply Fix'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Hindsight Memory Card */}
+                          {matchMemory && (
+                            <div className="issue-card" style={{ borderLeft: '3px solid var(--primary-color)' }}>
+                              <div className="hindsight-header">
+                                <span style={{ fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-color)' }}>
+                                  <Brain size={14} />
+                                  Hindsight Matching
+                                </span>
+                                <span className="hindsight-match-badge">{matchScore}% Match</span>
+                              </div>
+                              <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div>
+                                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>PREVIOUS AUDIT ISSUE:</span>
+                                  <div style={{ marginTop: '2px', color: 'var(--text-primary)' }}>{matchMemory.issue}</div>
+                                </div>
+                                <div>
+                                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>VERIFIED FIX ROUTINE:</span>
+                                  <div style={{ marginTop: '2px', color: 'var(--success-color)', fontStyle: 'italic' }}>"{matchMemory.fix}"</div>
+                                </div>
+                                <div>
+                                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>OUTCOME EFFECT:</span>
+                                  <div style={{ marginTop: '2px', color: 'var(--text-primary)' }}>{matchMemory.outcome}</div>
+                                </div>
+                              </div>
+                              
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                                <button 
+                                  className="btn btn-success" 
+                                  style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}
+                                  disabled={fixingIssueId !== null} 
+                                  onClick={() => handleApplyFixClick(issue.id)}
+                                >
+                                  {isFixing ? (
+                                    <>
+                                      <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                                      Applying...
+                                    </>
+                                  ) : 'Apply Hindsight Fix'}
+                                </button>
+
+                                {/* Agentic Custom Refactor Section */}
+                                {(() => {
+                                  const tailored = tailoredFixes[issue.id];
+                                  if (tailored?.code) {
+                                    return (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', marginTop: '4px' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--success-color)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <Sparkles size={11} />
+                                          Tailored Resolution:
+                                        </span>
+                                        <pre className="issue-fix-block" style={{ maxHeight: '120px', overflowY: 'auto', fontSize: '11px' }}>{tailored.code}</pre>
+                                        <button
+                                          className="btn btn-primary"
+                                          style={{ fontSize: '11px', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                                          disabled={fixingIssueId !== null}
+                                          onClick={() => handleApplyFixClick(issue.id, tailored.code)}
+                                        >
+                                          Apply Tailored Fix
+                                        </button>
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <button
+                                      className="btn"
+                                      style={{
+                                        fontSize: '11px',
+                                        padding: '6px 10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        justifyContent: 'center',
+                                        borderColor: 'rgba(99, 102, 241, 0.4)',
+                                        color: '#818cf8',
+                                        backgroundColor: 'rgba(99, 102, 241, 0.05)'
+                                      }}
+                                      disabled={tailored?.loading}
+                                      onClick={() => handleGenerateTailoredFix(issue.id, issue, matchMemory)}
+                                    >
+                                      {tailored?.loading ? (
+                                        <>
+                                          <RefreshCw size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                                          Refactoring for current file...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles size={12} />
+                                          🤖 Generate Tailored Fix
+                                        </>
+                                      )}
+                                    </button>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <h4 style={{ fontSize: '14px', fontWeight: 600 }}>{issue.type}</h4>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                          {issue.explanation}
-                        </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>RECOMMENDED FIX:</span>
-                          <pre className="issue-fix-block">{issue.recommendedFix}</pre>
-                        </div>
+                      );
+                    })
+                  )}
+                </>
+              ) : (
+                /* Chatbot Tab UI */
+                <div className="chatbot-container">
+                  <h3 style={{ fontSize: '14px', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MessageSquare size={14} style={{ color: 'var(--primary-color)' }} />
+                    CodeMind AI Assistant
+                  </h3>
+
+                  {chatContextIssue && (
+                    <div className="chat-context-banner">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--warning-color)' }}>Focus Context: {chatContextIssue.type}</span>
                         <button 
-                          className="btn btn-primary" 
-                          disabled={fixingIssueId !== null} 
-                          onClick={() => handleApplyFixClick(issue.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}
+                          onClick={() => setChatContextIssue(null)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '10px' }}
                         >
-                          {isFixing ? (
-                            <>
-                              <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
-                              Applying Fix...
-                            </>
-                          ) : 'Apply Resolution Fix'}
+                          Clear context
                         </button>
                       </div>
-
-                      {/* Hindsight Memory Card */}
-                      {matchMemory && (
-                        <div className="issue-card" style={{ borderLeft: '3px solid var(--primary-color)' }}>
-                          <div className="hindsight-header">
-                            <span style={{ fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-color)' }}>
-                              <Brain size={14} />
-                              Hindsight Matching
-                            </span>
-                            <span className="hindsight-match-badge">{matchScore}% Match</span>
-                          </div>
-                          <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div>
-                              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>PREVIOUS AUDIT ISSUE:</span>
-                              <div style={{ marginTop: '2px', color: 'var(--text-primary)' }}>{matchMemory.issue}</div>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>VERIFIED FIX ROUTINE:</span>
-                              <div style={{ marginTop: '2px', color: 'var(--success-color)', fontStyle: 'italic' }}>"{matchMemory.fix}"</div>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>OUTCOME EFFECT:</span>
-                              <div style={{ marginTop: '2px', color: 'var(--text-primary)' }}>{matchMemory.outcome}</div>
-                            </div>
-                          </div>
-                          <button 
-                            className="btn btn-success" 
-                            style={{ fontSize: '12px', padding: '6px 12px', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}
-                            disabled={fixingIssueId !== null} 
-                            onClick={() => handleApplyFixClick(issue.id)}
-                          >
-                            {isFixing ? (
-                              <>
-                                <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
-                                Applying...
-                              </>
-                            ) : 'Apply Hindsight Fix'}
-                          </button>
-                        </div>
-                      )}
+                      <span style={{ color: 'var(--text-secondary)' }}>Line {chatContextIssue.line}: {chatContextIssue.explanation.slice(0, 75)}...</span>
                     </div>
-                  );
-                })
+                  )}
+
+                  <div className="chat-messages">
+                    {chatMessages.map((msg, midx) => (
+                      <div key={midx} className={`chat-msg ${msg.sender}`}>
+                        {msg.sender === 'ai' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {msg.text.split('\n\n').map((para, pidx) => {
+                              if (para.startsWith('```')) {
+                                const cleanCode = para.replace(/```[a-zA-Z0-9]*\n?/g, '').replace(/```/g, '');
+                                return <pre key={pidx}><code>{cleanCode}</code></pre>;
+                              }
+                              return (
+                                <p key={pidx} style={{ margin: 0 }}>
+                                  {para.split('`').map((part, cidx) => {
+                                    if (cidx % 2 === 1) return <code key={cidx}>{part}</code>;
+                                    return part;
+                                  })}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          msg.text
+                        )}
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div className="chat-msg ai" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
+                        <span>AI is thinking...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick prompts */}
+                  <div className="chat-quick-actions">
+                    <button 
+                      className="chat-quick-btn"
+                      onClick={() => {
+                        const q = "Explain this file and list all active errors.";
+                        setChatInput(q);
+                        handleSendChatMessage(q);
+                      }}
+                    >
+                      💡 Explain this file and active errors
+                    </button>
+                    {chatContextIssue && (
+                      <button 
+                        className="chat-quick-btn"
+                        onClick={() => {
+                          const q = `How can I manually fix the "${chatContextIssue.type}" violation on line ${chatContextIssue.line}?`;
+                          setChatInput(q);
+                          handleSendChatMessage(q);
+                        }}
+                      >
+                        🛡️ How do I manually fix this violation?
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Input form */}
+                  <form 
+                    className="chat-input-bar"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendChatMessage();
+                    }}
+                  >
+                    <input 
+                      type="text" 
+                      className="chat-text-input" 
+                      placeholder="Ask AI about this file or error..."
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      disabled={chatLoading}
+                    />
+                    <button 
+                      type="submit" 
+                      className="chat-send-button"
+                      disabled={chatLoading || !chatInput.trim()}
+                    >
+                      <Send size={12} />
+                    </button>
+                  </form>
+                </div>
               )}
             </div>
           </div>

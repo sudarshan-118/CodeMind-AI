@@ -731,7 +731,7 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
     }
   };
   // Apply Resolution Fix & Save Memory
-  const handleApplyFix = async (projId: string, fileId: string, issueId: string) => {
+  const handleApplyFix = async (projId: string, fileId: string, issueId: string, customCode?: string) => {
     const targetProj = projects.find(p => p.id === projId);
     const targetFile = targetProj?.files.find(f => f.id === fileId);
     const targetIssue = targetFile?.issues.find(i => i.id === issueId);
@@ -754,6 +754,11 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
 
     let newCode = targetFile.code || '';
     let success = false;
+
+    if (customCode) {
+      newCode = customCode;
+      success = true;
+    } else {
 
     // Try AI dynamic refactoring first if keys are available
     try {
@@ -822,6 +827,7 @@ Instructions:
       }
     } catch (aiErr) {
       console.error("AI dynamic refactoring failed, falling back to local replacement:", aiErr);
+    }
     }
 
     if (!success) {
@@ -1002,7 +1008,27 @@ Instructions:
 
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
             {view === 'workspace' && activeProjectId && (
-              <button className="btn" onClick={() => setShowReportModal(true)}>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => setShowReportModal(true)}
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  padding: '8px 16px',
+                  background: 'linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%)',
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  boxShadow: '0 0 12px rgba(99, 102, 241, 0.2)',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = '0 0 16px rgba(99, 102, 241, 0.45)';
+                  e.currentTarget.style.filter = 'brightness(1.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = '0 0 12px rgba(99, 102, 241, 0.2)';
+                  e.currentTarget.style.filter = 'none';
+                }}
+              >
                 Export Audit Report
               </button>
             )}
