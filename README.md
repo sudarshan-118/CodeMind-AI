@@ -2,7 +2,7 @@
 
 CodeMind AI is an agentic code auditing, vulnerability detection, and repository visualization console. It introduces a persistent engineering memory layer into the code review process, ensuring that historical fixes and custom team standards dynamically guide future security and architectural recommendations.
 
-🌐 **Live Application:** [https://codemindai0.netlify.app/]([https://codemindai0.netlify.app/](https://code-mind-ai-gold.vercel.app/))
+🌐 **Live Application:** [https://codemindai0.netlify.app/]((https://code-mind-ai-gold.vercel.app/))
 
 ---
 
