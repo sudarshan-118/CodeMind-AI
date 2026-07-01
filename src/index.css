@@ -1648,3 +1648,124 @@ input:checked + .slider:before {
   color: #e2e8f0 !important;
 }
 
+/* --- Mobile Responsive Queries --- */
+@media (max-width: 768px) {
+  /* Main Layout */
+  .workspace-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  
+  .workspace-sidebar {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    max-height: 280px !important;
+    overflow-y: auto !important;
+    flex-shrink: 0 !important;
+  }
+  
+  .workspace-content-body {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  
+  .code-editor-container {
+    border-right: none !important;
+    height: 420px !important;
+    flex-shrink: 0 !important;
+  }
+  
+  .workspace-right-sidebar {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border-color) !important;
+    height: 520px !important;
+    overflow-y: auto !important;
+    flex-shrink: 0 !important;
+  }
+  
+  .chatbot-container {
+    height: 420px !important;
+  }
+
+  /* Dashboard grids */
+  .dashboard-body-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+  
+  /* Headers & Navigation */
+  .main-header {
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 12px !important;
+    align-items: center !important;
+  }
+  
+  .nav-links {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 6px !important;
+  }
+  
+  .nav-item {
+    min-width: 90px !important;
+    padding: 6px 12px !important;
+    font-size: 11px !important;
+  }
+  
+  .workspace-navbar {
+    flex-direction: column !important;
+    gap: 10px !important;
+    padding: 12px 8px !important;
+    align-items: center !important;
+  }
+  
+  .workspace-tabs {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 6px !important;
+  }
+  
+  /* Modal dialogs */
+  .modal-content {
+    width: 95% !important;
+    margin: 10px !important;
+    padding: 16px !important;
+  }
+  
+  .ingestion-options-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Landing Hero Section */
+  .hero-title {
+    font-size: 28px !important;
+  }
+  
+  .hero-subtitle {
+    font-size: 15px !important;
+  }
+  
+  .hero-cta {
+    flex-direction: column !important;
+    gap: 10px !important;
+    width: 100% !important;
+    align-items: center !important;
+  }
+  
+  .hero-cta .btn {
+    width: 100% !important;
+    max-width: 280px !important;
+  }
+}
+
