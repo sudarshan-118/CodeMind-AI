@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
 import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw } from 'lucide-react';
 
@@ -507,6 +507,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatContextIssue, setChatContextIssue] = useState<any | null>(null);
+
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (rightActiveTab === 'chatbot') {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, chatLoading, rightActiveTab]);
 
   // Advanced Memory Tailored Fix State
   const [tailoredFixes, setTailoredFixes] = useState<{ [issueId: string]: { code: string; loading: boolean; error?: string } }>({});
@@ -1481,33 +1489,19 @@ Instructions:
                     {chatMessages.map((msg, midx) => (
                       <div key={midx} className={`chat-msg ${msg.sender}`}>
                         {msg.sender === 'ai' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            {msg.text.split('\n\n').map((para, pidx) => {
-                              if (para.startsWith('```')) {
-                                const cleanCode = para.replace(/```[a-zA-Z0-9]*\n?/g, '').replace(/```/g, '');
-                                return <pre key={pidx}><code>{cleanCode}</code></pre>;
-                              }
-                              return (
-                                <p key={pidx} style={{ margin: 0 }}>
-                                  {para.split('`').map((part, cidx) => {
-                                    if (cidx % 2 === 1) return <code key={cidx}>{part}</code>;
-                                    return part;
-                                  })}
-                                </p>
-                              );
-                            })}
-                          </div>
+                          <SimpleMarkdown content={msg.text} />
                         ) : (
-                          msg.text
+                          <p style={{ margin: 0, fontSize: '13px' }}>{msg.text}</p>
                         )}
                       </div>
                     ))}
                     {chatLoading && (
                       <div className="chat-msg ai" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Loader size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
-                        <span>AI is thinking...</span>
+                        <Loader size={12} style={{ animation: 'spin 1.2s linear infinite', marginRight: '6px' }} />
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI is thinking...</span>
                       </div>
                     )}
+                    <div ref={chatMessagesEndRef} />
                   </div>
 
                   {/* Quick prompts */}
