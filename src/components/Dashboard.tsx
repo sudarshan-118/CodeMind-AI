@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import type { Project, Activity, Memory, Standard, ProjectFile, Issue } from '../types';
+import type { Project, Activity, Memory, Standard, ProjectFile } from '../types';
 import { GitBranch, FolderOpen, Play, Plus, X, Globe, Upload, File, Loader } from 'lucide-react';
 import { INITIAL_PROJECTS } from '../mockData';
 import JSZip from 'jszip';
+import { CodeMindEngine, RepositoryMemoryEngine } from '../backend';
+import { RepositoryTimeline } from './RepositoryTimeline';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constants
@@ -52,76 +55,13 @@ const isCodeFile  = (name: string) => CODE_EXTS.has(getExt(name));
 const isTextFile  = (name: string) => TEXT_EXTS.has(getExt(name));
 const isBinaryFile = (name: string) => BINARY_EXTS.has(getExt(name));
 
-const detectLanguage = (name: string): string => {
-  const ext = getExt(name);
-  const MAP: Record<string, string> = {
-    ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', jsx: 'JavaScript',
-    mjs: 'JavaScript', cjs: 'JavaScript', py: 'Python', go: 'Go',
-    java: 'Java', cpp: 'C++', c: 'C', h: 'C/C++', hpp: 'C++', cs: 'C#',
-    rb: 'Ruby', rs: 'Rust', swift: 'Swift', kt: 'Kotlin', php: 'PHP',
-    vue: 'Vue', svelte: 'Svelte', dart: 'Dart', scala: 'Scala',
-    sh: 'Shell', bash: 'Shell', sql: 'SQL', html: 'HTML', css: 'CSS',
-    scss: 'SCSS', json: 'JSON', yml: 'YAML', yaml: 'YAML', md: 'Markdown',
-    graphql: 'GraphQL', gql: 'GraphQL', lua: 'Lua', r: 'R',
-  };
-  return MAP[ext] ?? ext.toUpperCase() ?? 'Text';
-};
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Import / Export Extractor
 // ─────────────────────────────────────────────────────────────────────────────
 
-const extractImportsExports = (name: string, code: string) => {
-  const ext = getExt(name);
-  const imports: string[] = [];
-  const exports: string[] = [];
-  try {
-    if (['js', 'ts', 'tsx', 'jsx', 'mjs', 'cjs', 'vue', 'svelte'].includes(ext)) {
-      let m;
-      const ir = /from\s+['"]([^'"]+)['"]/g;
-      const rr = /require\(\s*['"]([^'"]+)['"]\s*\)/g;
-      const er = /export\s+(?:default\s+)?(?:const|let|var|function|class|interface|type|enum)\s+(\w+)/g;
-      while ((m = ir.exec(code))) imports.push(m[1]);
-      while ((m = rr.exec(code))) imports.push(m[1]);
-      while ((m = er.exec(code))) exports.push(m[1]);
-    } else if (ext === 'py') {
-      let m;
-      const pyImp = /^import\s+(\w+)/gm;
-      const pyFrom = /^from\s+([\w.]+)\s+import/gm;
-      const pyDef = /^(?:def|class)\s+(\w+)/gm;
-      while ((m = pyImp.exec(code))) imports.push(m[1]);
-      while ((m = pyFrom.exec(code))) imports.push(m[1]);
-      while ((m = pyDef.exec(code))) exports.push(m[1]);
-    } else if (ext === 'go') {
-      let m;
-      const goImp = /import\s+"([^"]+)"/g;
-      const goFunc = /^func\s+(\w+)/gm;
-      while ((m = goImp.exec(code))) imports.push(m[1]);
-      const block = code.match(/import\s*\(\s*([\s\S]*?)\)/);
-      if (block) block[1].split('\n').forEach(l => { const mm = l.match(/"([^"]+)"/); if (mm) imports.push(mm[1]); });
-      while ((m = goFunc.exec(code))) { if (m[1][0] === m[1][0].toUpperCase()) exports.push(m[1]); }
-    } else if (ext === 'java') {
-      let m;
-      const javaImp = /import\s+([\w.]+);/g;
-      const javaClass = /public\s+(?:class|interface|enum)\s+(\w+)/g;
-      while ((m = javaImp.exec(code))) imports.push(m[1]);
-      while ((m = javaClass.exec(code))) exports.push(m[1]);
-    } else if (['cpp', 'c', 'h', 'hpp'].includes(ext)) {
-      let m;
-      const cppInc = /#include\s+["<]([^">]+)[">]/g;
-      const cppClass = /(?:class|struct)\s+(\w+)/g;
-      while ((m = cppInc.exec(code))) imports.push(m[1]);
-      while ((m = cppClass.exec(code))) exports.push(m[1]);
-    } else if (ext === 'cs') {
-      let m;
-      const csUsg = /using\s+([\w.]+);/g;
-      const csClass = /public\s+(?:class|interface|struct)\s+(\w+)/g;
-      while ((m = csUsg.exec(code))) imports.push(m[1]);
-      while ((m = csClass.exec(code))) exports.push(m[1]);
-    }
-  } catch { /* ignore */ }
-  return { imports: [...new Set(imports)], exports: [...new Set(exports)] };
-};
+
 const mkUUID = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -137,197 +77,7 @@ const mkUUID = (): string => {
 //  Local Static Scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
-const scanLocal = (code: string, stds: Standard[], memories: Memory[] = [], filePath = ""): Issue[] => {
-  const issues: Issue[] = [];
-  const mk = () => mkUUID();
-  const fileName = filePath.split('/').pop() || filePath;
-  const lines = code.split('\n');
 
-  lines.forEach((line, i) => {
-    const ln = i + 1;
-    const nc = !line.trimStart().startsWith('//') && !line.trimStart().startsWith('#');
-    if (nc) {
-      // 1. Hardcoded API Keys
-      if (/(?:api_key|secret|password|passwd|private_key|token)\s*=\s*['"][a-zA-Z0-9_\-+=/]{15,}['"]/i.test(line)) {
-        let explanation = 'Hardcoded secret/token detected. Credentials must never be in source code.';
-        let recommendedFix = 'const apiKey = process.env.API_KEY;';
-
-        const match = memories.find(m => 
-          (m.issue.toLowerCase().includes('secret') || m.issue.toLowerCase().includes('key') || m.issue.toLowerCase().includes('credential')) &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          (m.issue.toLowerCase().includes('secret') || m.issue.toLowerCase().includes('key') || m.issue.toLowerCase().includes('credential'))
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'Hardcoded API Keys', severity: 'critical', applied: false, explanation, recommendedFix });
-        }
-      }
-
-      // 2. SQL Injection
-      if (/(SELECT|INSERT|UPDATE|DELETE).*\+.*\b/i.test(line) || /(SELECT|INSERT|UPDATE|DELETE).*\$\{.*\}/i.test(line)) {
-        let explanation = 'SQL built via string concatenation — injection risk.';
-        let recommendedFix = 'db.query("SELECT * FROM t WHERE id = ?", [id])';
-
-        const match = memories.find(m => 
-          m.issue.toLowerCase().includes('sql') &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          m.issue.toLowerCase().includes('sql')
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'SQL Injection', severity: 'critical', applied: false, explanation, recommendedFix });
-        }
-      }
-
-      // 3. Unsafe eval()
-      if (/\beval\s*\(/.test(line)) {
-        let explanation = 'eval() enables arbitrary code execution.';
-        let recommendedFix = '// Replace with JSON.parse() or structured lookups';
-
-        const match = memories.find(m => 
-          m.issue.toLowerCase().includes('eval') &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          m.issue.toLowerCase().includes('eval')
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'Unsafe eval()', severity: 'high', applied: false, explanation, recommendedFix });
-        }
-      }
-
-      // 4. Command Injection
-      if (/os\.system\(|subprocess\.call\(|exec\s*\(|spawn\s*\(/i.test(line)) {
-        let explanation = 'Unsanitized input may reach shell execution.';
-        let recommendedFix = 'subprocess.run(["cmd", arg], check=True)';
-
-        const match = memories.find(m => 
-          m.issue.toLowerCase().includes('command') &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          m.issue.toLowerCase().includes('command')
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'Command Injection', severity: 'high', applied: false, explanation, recommendedFix });
-        }
-      }
-
-      // 5. Sensitive Logging
-      if (/console\.log\(.*(password|secret|token|key|pwd).*\)/i.test(line)) {
-        let explanation = 'Credential logged to console — leakage risk.';
-        let recommendedFix = '// Remove sensitive parameter from log';
-
-        const match = memories.find(m => 
-          (m.issue.toLowerCase().includes('log') || m.issue.toLowerCase().includes('sensitive')) &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          (m.issue.toLowerCase().includes('log') || m.issue.toLowerCase().includes('sensitive'))
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'Sensitive Logging', severity: 'medium', applied: false, explanation, recommendedFix });
-        }
-      }
-
-      // 6. Weak Encryption
-      if (/\bmd5\b|\bsha1\b|\bDES\b/i.test(line)) {
-        let explanation = 'Deprecated algorithm (MD5/SHA1/DES) detected.';
-        let recommendedFix = '// Use SHA-256 / bcrypt / argon2';
-
-        const match = memories.find(m => 
-          (m.issue.toLowerCase().includes('encrypt') || m.issue.toLowerCase().includes('hash') || m.issue.toLowerCase().includes('md5') || m.issue.toLowerCase().includes('sha1')) &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          (m.issue.toLowerCase().includes('encrypt') || m.issue.toLowerCase().includes('hash') || m.issue.toLowerCase().includes('md5') || m.issue.toLowerCase().includes('sha1'))
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: 'Weak Encryption', severity: 'high', applied: false, explanation, recommendedFix });
-        }
-      }
-    }
-
-    stds.forEach(s => {
-      if (!s.enabled || !s.ruleKeyword) return;
-      if (line.toLowerCase().includes(s.ruleKeyword.toLowerCase()) && !issues.some(iss => iss.line === ln && iss.type === s.name)) {
-        let explanation = `Team standard: "${s.description}"`;
-        let recommendedFix = `// Refactor per: ${s.description}`;
-
-        const match = memories.find(m => 
-          m.issue.toLowerCase().includes(s.name.toLowerCase()) &&
-          (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-        ) || memories.find(m => 
-          m.issue.toLowerCase().includes(s.name.toLowerCase())
-        );
-
-        if (match) {
-          recommendedFix = match.fix;
-          explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-        }
-
-        if (!line.includes(recommendedFix)) {
-          issues.push({ id: mk(), line: ln, type: s.name,
-            severity: s.severity === 'critical' ? 'critical' : 'medium', applied: false,
-            explanation, recommendedFix });
-        }
-      }
-    });
-  });
-
-  if (lines.length > 100) {
-    let explanation = `File is ${lines.length} lines. Consider splitting into modules.`;
-    let recommendedFix = '// Decompose into smaller focused modules.';
-
-    const match = memories.find(m => 
-      m.issue.toLowerCase().includes('large file') &&
-      (filePath && m.issue.toLowerCase().includes(fileName.toLowerCase()))
-    ) || memories.find(m => 
-      m.issue.toLowerCase().includes('large file')
-    );
-
-    if (match) {
-      recommendedFix = match.fix;
-      explanation = `Learned from Memory Center: ${match.recommendation || explanation}`;
-    }
-
-    issues.push({ id: mk(), line: 1, type: 'Large File', severity: 'medium', applied: false, explanation, recommendedFix });
-  }
-
-  return issues;
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Groq AI Scanner
@@ -362,197 +112,7 @@ const fetchWithRetry = async (
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Groq AI Scanner
-// ─────────────────────────────────────────────────────────────────────────────
 
-let lastScanKeyIndex = 0;
-
-const scanWithGroq = async (_name: string, path: string, code: string, stds: Standard[], memories: Memory[]): Promise<Issue[]> => {
-  const keys = [
-    import.meta.env.VITE_GROQ_API_KEY,
-    import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-    import.meta.env.VITE_GROQ_API_KEY_3,
-    import.meta.env.VITE_GROQ_API_KEY_4
-  ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
-
-  if (keys.length === 0) return scanLocal(code, stds, memories, path);
-
-  const mk = () => mkUUID();
-  const enabled = stds.filter(s => s.enabled);
-
-  // Map only the most recent memory records to keep prompt compact and focused
-  const cleanMemories = memories.slice(0, 15).map(m => ({
-    issue: m.issue,
-    fix: m.fix,
-    recommendation: m.recommendation,
-    outcome: m.outcome
-  }));
-
-  const sys = `You are CodeMind AI — a strict code security and quality analyser.
-Analyse ONLY what is visible in the code provided. NEVER invent or hallucinate issues.
-Detect ONLY these categories (skip any that are absent):
-1. Hardcoded API Keys — credentials / tokens hardcoded
-2. SQL Injection — raw string concat in DB queries
-3. Command Injection — unsanitized input to shell/exec
-4. Unsafe eval() — dynamic code evaluation
-5. Exposed Secrets — passwords, private keys, connection strings
-6. Sensitive Logging — printing credentials to console
-7. Weak Encryption — MD5, SHA1, DES usage
-8. Missing Authentication — unprotected endpoints
-9. Weak Validation — absent or trivial input sanitization
-10. Large Functions — functions exceeding 80 lines
-11. JWT Problems — weak secrets, no expiry
-
-Team standards to enforce: ${JSON.stringify(enabled.map(s => ({ name: s.name, desc: s.description, kw: s.ruleKeyword })))}
-
-Historical database of previous fixes and resolutions to reference (enforce consistency with these fixes):
-${JSON.stringify(cleanMemories)}
-
-CRITICAL LEARNING INSTRUCTIONS:
-- You MUST learn from the historical database of previous fixes.
-- For any issue you detect, check if a similar issue exists in the historical database.
-- If a matching memory exists, you MUST suggest the EXACT same recommended fix (or a highly consistent variation of it) and mention "Learned from Memory Center" in the explanation.
-- If the code currently matches the fix or resolution pattern shown in the historical database, the code has already learned and is secure; do NOT flag it as an issue.
-
-Return ONLY valid JSON: {"issues":[{"line":N,"type":"...","severity":"critical|high|medium","explanation":"...","recommendedFix":"..."}]}
-If nothing found: {"issues":[]}`;
-
-  const executeScan = async (apiKey: string): Promise<Response> => {
-    const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
-    return await fetchWithRetry(`${baseUrl}/openai/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: `File: ${path}\n\n${code.slice(0, 8000)}` }],
-        temperature: 0.05,
-        response_format: { type: 'json_object' },
-      }),
-    }, 2, 1000, false);
-  };
-
-  // Select initial key with load balancing
-  const startIndex = lastScanKeyIndex;
-  lastScanKeyIndex = (lastScanKeyIndex + 1) % keys.length;
-
-  let lastError: any = null;
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const currentKeyIndex = (startIndex + attempt) % keys.length;
-    const currentKey = keys[currentKeyIndex];
-    try {
-      const res = await executeScan(currentKey);
-      if (res.ok) {
-        const data = await res.json();
-        let txt = data.choices?.[0]?.message?.content ?? '{}';
-        const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (fence) txt = fence[1].trim();
-        const parsed = JSON.parse(txt);
-        if (!Array.isArray(parsed.issues)) return scanLocal(code, stds, memories, path);
-        return parsed.issues.map((i: Record<string, unknown>) => ({
-          id: mk(), line: Number(i.line) || 1,
-          type: String(i.type || 'AI Finding'),
-          severity: ['critical','high','medium'].includes(String(i.severity)) ? i.severity as Issue['severity'] : 'medium',
-          explanation: String(i.explanation || 'Code quality issue.'),
-          recommendedFix: String(i.recommendedFix || '// Refactor per best practices'),
-          applied: false,
-        }));
-      } else {
-        console.warn(`CodeMind AI: Key ${currentKeyIndex + 1}/${keys.length} failed with status ${res.status}.`);
-        lastError = new Error(`HTTP status ${res.status}`);
-      }
-    } catch (err) {
-      console.warn(`CodeMind AI: Key ${currentKeyIndex + 1}/${keys.length} threw an error.`, err);
-      lastError = err;
-    }
-  }
-
-  console.warn("CodeMind AI: All configured Groq API keys failed or were rate limited. Falling back to local scanner.", lastError);
-  return scanLocal(code, stds);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Dependency Resolver
-// ─────────────────────────────────────────────────────────────────────────────
-
-const resolveDeps = (filePath: string, code: string, allPaths: string[]): string[] => {
-  const { imports } = extractImportsExports(filePath.split('/').pop() ?? '', code);
-  const deps = new Set<string>();
-  const dir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
-  for (const imp of imports) {
-    if (imp.startsWith('.')) {
-      const parts = dir ? dir.split('/') : [];
-      imp.split('/').forEach(seg => {
-        if (seg === '.') { /* noop */ } else if (seg === '..') parts.pop(); else parts.push(seg);
-      });
-      const base = parts.join('/');
-      const hit = allPaths.find(p => {
-        const woExt = p.includes('.') ? p.slice(0, p.lastIndexOf('.')) : p;
-        return woExt === base || p === base;
-      });
-      if (hit) deps.add(hit);
-    } else {
-      const stem = imp.split('/').pop()?.split('.')[0]?.toLowerCase() ?? '';
-      const hit = allPaths.find(p => {
-        const ps = p.split('/').pop()?.split('.')[0]?.toLowerCase() ?? '';
-        return ps === stem || p.toLowerCase().includes(`/${imp.toLowerCase()}.`);
-      });
-      if (hit) deps.add(hit);
-    }
-  }
-  return [...deps];
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Cross-file Analysis
-// ─────────────────────────────────────────────────────────────────────────────
-
-const detectCircularDeps = (files: ProjectFile[]) => {
-  const cycles: { path: string; cycle: string[] }[] = [];
-  const visited = new Set<string>(), stack = new Set<string>();
-  const dfs = (p: string, trail: string[]): string[] | null => {
-    if (stack.has(p)) { const s = trail.indexOf(p); return [...trail.slice(s), p]; }
-    if (visited.has(p)) return null;
-    visited.add(p); stack.add(p);
-    for (const d of files.find(f => f.path === p)?.dependencies ?? []) {
-      const c = dfs(d, [...trail, p]); if (c) { stack.delete(p); return c; }
-    }
-    stack.delete(p); return null;
-  };
-  files.forEach(f => { if (!visited.has(f.path)) { const c = dfs(f.path, []); if (c) cycles.push({ path: f.path, cycle: c }); } });
-  return cycles;
-};
-
-const detectDuplicateLogic = (files: ProjectFile[]) => {
-  const seen = new Map<string, { path: string; line: number }>();
-  const dups: { path: string; line: number; explanation: string }[] = [];
-  files.forEach(f => {
-    if (!f.code || !f.isCode) return;
-    const lines = f.code.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('//') && !l.startsWith('#'));
-    for (let i = 0; i <= lines.length - 5; i++) {
-      const blk = lines.slice(i, i + 5).join('\n');
-      if (blk.length < 60) continue;
-      if (seen.has(blk)) {
-        const o = seen.get(blk)!;
-        if (o.path !== f.path) { dups.push({ path: f.path, line: i + 1, explanation: `Duplicate 5-line block also in ${o.path}:${o.line}` }); break; }
-      } else seen.set(blk, { path: f.path, line: i + 1 });
-    }
-  });
-  return dups;
-};
-
-const detectUnusedExports = (files: ProjectFile[]) => {
-  const safe = new Set(['App', 'main', 'index', 'default', 'router', 'Routes', 'handler', 'middleware']);
-  return files.flatMap(f =>
-    (f.exports ?? [])
-      .filter(sym => !safe.has(sym) && !files.filter(o => o.id !== f.id).some(o => o.code?.includes(sym)))
-      .map(sym => ({ path: f.path, symbol: sym, explanation: `"${sym}" exported but never imported elsewhere.` }))
-  );
-};
-
-const computeRisk = (issues: Issue[]): number =>
-  Math.min(100, issues.filter(i => !i.applied).reduce((s, i) =>
-    s + (i.severity === 'critical' ? 45 : i.severity === 'high' ? 25 : i.severity === 'medium' ? 12 : 5), 0));
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  GitHub API Repository Fetcher
@@ -928,7 +488,7 @@ interface DashboardProps {
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  projects, memories, activities, analytics, standards,
+  projects, memories, activities, analytics, standards: _standards,
   onSelectProject, onImportProject, onAddActivity,
   autoOpenIngest, clearAutoOpenIngest,
 }) => {
@@ -983,7 +543,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (importType !== 'git' && selectedFiles.length === 0) return;
 
     const projId  = `proj-${Date.now()}`;
-    const startTs = Date.now();
 
     const baseName = importType === 'git'
       ? gitUrl.replace(/\.git$/, '').split('/').filter(Boolean).pop() ?? 'github-repo'
@@ -1028,202 +587,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
       addLog(`📋 Discovered: ${foldersFound} folders · ${parsedFiles.length} readable files · ${codeFiles.length} source code files`);
       setProgress(45);
 
-      // ── 2. Scan each code file ───────────────────────────────────────────
-      const allPaths = parsedFiles.map(f => f.path);
-      const hasGroq = !!(
-        import.meta.env.VITE_GROQ_API_KEY ||
-        import.meta.env.VITE_GROQ_API_KEY_FALLBACK ||
-        import.meta.env.VITE_GROQ_API_KEY_3 ||
-        import.meta.env.VITE_GROQ_API_KEY_4
+      // ── 2. Run CodeMind Engine v2 Backend Analysis ───────────────────────
+      addLog(`⚡ Starting CodeMind Engine v2 deterministic multi-stage analysis pipeline...`);
+
+      const engineResult = await CodeMindEngine.analyzeRepository(
+        {
+          projectId: projId,
+          projectName: name,
+          sourceType: importType,
+          files: parsedFiles
+        },
+        progressUpdate => {
+          setProgress(progressUpdate.percentage);
+          if (progressUpdate.logMessage) {
+            addLog(progressUpdate.logMessage);
+          }
+        }
       );
 
-      if (hasGroq) {
-        if (codeFiles.length > 45) {
-          addLog(`🤖 Groq AI active — scanning first 45 core files with AI, and the remaining ${codeFiles.length - 45} files with local syntactic scanner for speed.`);
-        } else {
-          addLog(`🤖 Groq AI (llama-3.3-70b-versatile) active — deep semantic analysis.`);
-        }
-      } else {
-        addLog(`🔍 Local syntactic scanner active (set VITE_GROQ_API_KEY for AI analysis).`);
-      }
-
-      const projectFiles: ProjectFile[] = [];
-      let filesParsed = 0, filesFailed = 0;
-
-      // Add non-code files to the tree first (no analysis needed)
-      parsedFiles.filter(f => !f.isCode).forEach((f, i) => {
-        projectFiles.push({
-          id: `file-${projId}-nc-${i}`, projectId: projId,
-          name: f.name, path: f.path, isDir: false, isCode: false,
-          language: detectLanguage(f.name),
-          code: f.code, riskState: 'safe', riskScore: 0,
-          issues: [], dependencies: [], imports: [], exports: [], size: f.size,
-        });
-      });
-
-      // Scan code files in parallel (concurrency limit: 4)
-      const CONCURRENCY_LIMIT = 4;
-      const results: ProjectFile[] = new Array(codeFiles.length);
-      let nextIndex = 0;
-
-      const worker = async () => {
-        while (true) {
-          const index = nextIndex++;
-          if (index >= codeFiles.length) break;
-
-          const f = codeFiles[index];
-          const display = f.path.length > 55 ? `…${f.path.slice(-52)}` : f.path;
-          
-          const isPlaceholder = f.code.startsWith('// Content not fetched') || f.code.startsWith('// Content unavailable');
-          const isEmpty = !f.code.trim();
-          const useAI = hasGroq && index < 45 && !isPlaceholder && !isEmpty;
-
-          addLog(`${useAI ? '🤖 [AI]' : '🔍 [Local]'} [${index + 1}/${codeFiles.length}] Started scanning ${display}…`);
-
-          try {
-            const issues  = isPlaceholder || isEmpty
-              ? []
-              : useAI
-                ? await scanWithGroq(f.name, f.path, f.code, standards, memories)
-                : scanLocal(f.code, standards, memories, f.path);
-
-            const deps    = resolveDeps(f.path, f.code, allPaths);
-            const { imports, exports } = extractImportsExports(f.name, f.code);
-            const riskState = issues.some(i => i.severity === 'critical') ? 'critical'
-              : issues.some(i => i.severity === 'high')   ? 'high'
-              : issues.some(i => i.severity === 'medium') ? 'medium' : 'safe';
-
-            results[index] = {
-              id: `file-${projId}-${index}`, projectId: projId,
-              name: f.name, path: f.path, isDir: false, isCode: true,
-              language: detectLanguage(f.name),
-              code: f.code, riskState, riskScore: 0,
-              issues, dependencies: deps, imports, exports, size: f.size,
-            };
-            filesParsed++;
-            addLog(`✓ [${index + 1}/${codeFiles.length}] Finished scanning ${f.name}`);
-          } catch (err) {
-            console.error(`Failed scanning ${f.path}:`, err);
-            filesFailed++;
-            results[index] = {
-              id: `file-${projId}-${index}`, projectId: projId,
-              name: f.name, path: f.path, isDir: false, isCode: true,
-              language: detectLanguage(f.name),
-              code: f.code, riskState: 'safe', riskScore: 0,
-              issues: [], dependencies: [], imports: [], exports: [], size: f.size,
-            };
-            addLog(`❌ [${index + 1}/${codeFiles.length}] Failed scanning ${f.name}`);
-          }
-
-          const completedCount = results.filter(Boolean).length;
-          setProgress(45 + Math.round((completedCount / codeFiles.length) * 35));
-        }
-      };
-
-      const workers = [];
-      for (let w = 0; w < Math.min(CONCURRENCY_LIMIT, codeFiles.length); w++) {
-        workers.push(worker());
-      }
-      await Promise.all(workers);
-
-      projectFiles.push(...results);
-
-      // ── 3. Cross-file analysis ───────────────────────────────────────────
-      const mk = () => mkUUID();
-      addLog(`🔁 Running cross-file analysis…`);
-
-      detectCircularDeps(projectFiles.filter(f => f.isCode)).forEach(({ path, cycle }) => {
-        const f = projectFiles.find(pf => pf.path === path);
-        if (f) {
-          f.issues.push({ id: mk(), line: 1, type: 'Circular Dependencies', severity: 'high', applied: false,
-            explanation: `Circular import: ${cycle.join(' → ')}`,
-            recommendedFix: '// Break cycle via interface or shared util.' });
-          if (f.riskState === 'safe' || f.riskState === 'medium') f.riskState = 'high';
-        }
-      });
-
-      detectDuplicateLogic(projectFiles).forEach(({ path, line, explanation }) => {
-        const f = projectFiles.find(pf => pf.path === path);
-        if (f) {
-          f.issues.push({ id: mk(), line, type: 'Duplicate Logic', severity: 'medium', applied: false,
-            explanation, recommendedFix: '// Extract into a shared helper.' });
-          if (f.riskState === 'safe') f.riskState = 'medium';
-        }
-      });
-
-      detectUnusedExports(projectFiles).forEach(({ path, explanation }) => {
-        const f = projectFiles.find(pf => pf.path === path);
-        if (f) {
-          f.issues.push({ id: mk(), line: 1, type: 'Unused Code', severity: 'medium', applied: false,
-            explanation, recommendedFix: '// Remove unused export.' });
-          if (f.riskState === 'safe') f.riskState = 'medium';
-        }
-      });
-
-      projectFiles.forEach(f => { f.riskScore = computeRisk(f.issues); });
-
-      // 🧠 Extract exemplary secure memories
+      // Extract exemplary secure memories
       addLog(`🧠 Analyzing codebase to extract secure implementation memories…`);
-      setProgress(85);
-      const extractedMemories = await extractMemoriesFromCode(name, projectFiles, memories);
+      const extractedMemories = await extractMemoriesFromCode(name, engineResult.files, memories);
       if (extractedMemories.length > 0) {
         addLog(`🧠 Extracted ${extractedMemories.length} secure code memories from "${name}".`);
       }
 
-      // ── 4. Compute health scores ─────────────────────────────────────────
-      setProgress(88);
-      addLog(`📊 Computing project health scores…`);
-
-      const totalIssues = projectFiles.reduce((a, f) => a + f.issues.length, 0);
-      const crit  = projectFiles.reduce((a, f) => a + f.issues.filter(i => i.severity === 'critical').length, 0);
-      const high  = projectFiles.reduce((a, f) => a + f.issues.filter(i => i.severity === 'high').length, 0);
-      const dup   = projectFiles.reduce((a, f) => a + f.issues.filter(i => i.type.includes('Duplicate') || i.type.includes('Unused')).length, 0);
-      const large = projectFiles.reduce((a, f) => a + f.issues.filter(i => i.type === 'Large File').length, 0);
-
-      const secScore  = Math.max(10, 100 - crit * 22 - high * 12);
-      const archScore = Math.max(15, 100 - dup * 10 - (totalIssues - crit - high) * 4);
-      const perfScore = Math.max(20, 100 - large * 15);
-      const maintScore = Math.max(20, 100 - dup * 8 - large * 10 - totalIssues * 2);
-      const overallScore = Math.round((secScore + archScore + perfScore + maintScore) / 4);
-
-      const langs = [...new Set(projectFiles.filter(f => f.isCode).map(f => detectLanguage(f.name)))];
-      const lines = projectFiles.filter(f => f.isCode).reduce((a, f) => a + (f.code?.split('\n').length ?? 0), 0);
-
       const newProj: Project & { extractedMemories?: Memory[] } = {
-        id:         projId,
-        name,
-        description: `${parsedFiles.length} files · ${foldersFound} folders · ${lines.toLocaleString()} lines of code`,
-        language:   langs[0] ?? 'Mixed',
-        status:     'ready',
-        overallScore,
-        securityScore: secScore,
-        architectureScore: archScore,
-        performanceScore: perfScore,
-        maintainabilityScore: maintScore,
+        ...engineResult.project,
         branch,
-        commitHash: Math.random().toString(16).slice(2, 9),
-        files: projectFiles,
-        analysisStats: {
-          totalFilesFound: parsedFiles.length,
-          foldersFound,
-          filesParsed,
-          filesFailed,
-          linesProcessed: lines,
-          detectedLanguages: langs,
-          analysisDurationMs: Date.now() - startTs,
-          totalFindings: totalIssues,
-        },
         extractedMemories
       };
 
       setProgress(100);
-      addLog(`✅ "${name}" ready — ${projectFiles.length} files in tree, ${codeFiles.length} analysed, ${totalIssues} findings, health ${overallScore}%`);
+      addLog(`✅ "${name}" ready — ${newProj.files.length} files in tree, ${engineResult.findings.length} findings, health ${newProj.overallScore}%`);
       await delay(500);
 
       onImportProject(newProj);
       onAddActivity({
         id: `act-${Date.now()}`, projectId: projId, type: 'success', time: 'Just now',
-        text: `Ingested "${name}" — ${projectFiles.length} files, ${totalIssues} findings, health ${overallScore}%.`,
+        text: `Ingested "${name}" via Engine v2 — ${newProj.files.length} files, ${engineResult.findings.length} findings, health ${newProj.overallScore}%.`,
       });
 
       setIsIngesting(false);
@@ -1417,6 +819,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* Phase 2: Repository Evolution & Intelligence Timeline */}
+      {projects.length > 0 && (
+        <RepositoryTimeline
+          snapshots={RepositoryMemoryEngine.getTimeline(projects[0].id)}
+          currentHealth={projects[0].overallScore}
+          techDebtHours={Math.round(projects[0].files.flatMap(f => f.issues).length * 1.5)}
+          detectedPattern={projects[0].description?.includes('Pattern') ? projects[0].description.split(' (')[1]?.replace(' Pattern)', '') || 'Layered' : 'Layered'}
+        />
+      )}
 
       {/* Ingest Modal */}
       {showModal && (

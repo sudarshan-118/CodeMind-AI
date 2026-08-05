@@ -217,25 +217,11 @@ export default function App() {
         }
 
         let seededMemories = false;
-        if (currentProjList.length > 0 && currentMemList.length === 0) {
-          console.log('CodeMind AI: Seeding default memories for user:', ownerId);
+        if (currentMemList.length === 0) {
+          console.log('CodeMind AI: Seeding personal default memories for user:', ownerId);
           for (const mem of INITIAL_MEMORIES) {
             try {
-              await dbService.saveMemory({
-                project_id: currentProjList[0].id,
-                memory_type: 'security',
-                title: mem.issue.split(' in ')[0],
-                description: mem.recommendation,
-                memory_data: {
-                  issue_type: mem.issue,
-                  severity: 'high',
-                  file: mem.issue.split(' in ')[1] || '',
-                  line: 1,
-                  recommended_fix: mem.fix,
-                  outcome: mem.outcome,
-                  tags: ['seeding']
-                }
-              }, ownerId);
+              await dbService.createMemoryFromModel(mem, ownerId);
               seededMemories = true;
             } catch (seedErr) {
               console.error('Failed to seed memory on boot:', seedErr);
@@ -914,6 +900,25 @@ Instructions:
     }
   };
 
+  const handleAddMemory = (newMem: Memory) => {
+    const ownerId = user?.id || '';
+    dbService.createMemoryFromModel(newMem, ownerId).then(memId => {
+      const created = { ...newMem, id: memId, ownerId };
+      setMemories(prev => [created, ...prev]);
+    }).catch(err => {
+      console.error('Failed to save memory:', err);
+    });
+  };
+
+  const handleDeleteMemory = (memoryId: string) => {
+    const ownerId = user?.id || '';
+    dbService.deleteMemory(memoryId, ownerId).then(() => {
+      setMemories(prev => prev.filter(m => m.id !== memoryId));
+    }).catch(err => {
+      console.error('Failed to delete memory:', err);
+    });
+  };
+
   const handleSelectProject = (id: string) => {
     setActiveProjectId(id);
     const proj = projects.find(p => p.id === id);
@@ -1090,7 +1095,12 @@ Instructions:
         )}
 
         {view === 'memories' && (
-          <MemoryCenter memories={memories} />
+          <MemoryCenter
+            memories={memories}
+            userEmail={user?.primaryEmailAddress?.emailAddress || user?.username || user?.firstName || 'User'}
+            onAddMemory={handleAddMemory}
+            onDeleteMemory={handleDeleteMemory}
+          />
         )}
 
         {view === 'standards' && (

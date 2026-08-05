@@ -1,6 +1,6 @@
 import { supabase } from '../supabaseClient';
 import type { Project, Memory, Standard, Activity, ProjectFile, Issue } from '../types';
-import { INITIAL_PROJECTS, INITIAL_STANDARDS, INITIAL_MEMORIES, INITIAL_ACTIVITIES } from '../mockData';
+import { INITIAL_PROJECTS, INITIAL_STANDARDS, INITIAL_ACTIVITIES } from '../mockData';
 
 function getMockCodeForFile(filename: string): string {
   const found = INITIAL_PROJECTS.flatMap(p => p.files).find(f => f.name === filename);
@@ -887,7 +887,7 @@ export const dbService = {
   // 14. Memories management
   async createMemoryFromModel(mem: Memory, ownerId: string): Promise<string> {
     if (hasSupabaseCreds) {
-      // Fetch user's first project to associate with this memory to satisfy NOT NULL constraint
+      // Fetch user's first project to associate with this memory
       const { data: projs, error: projErr } = await supabase
         .from('projects')
         .select('id')
@@ -895,9 +895,13 @@ export const dbService = {
         .limit(1);
 
       if (projErr) throw projErr;
-      const firstProjId = projs?.[0]?.id;
+      let firstProjId = projs?.[0]?.id;
       if (!firstProjId) {
-        throw new Error(`Cannot seed memory "${mem.issue}": No project exists for owner ${ownerId}`);
+        firstProjId = await this.createProject({
+          name: 'Personal Memory Vault',
+          description: 'User repository memory store',
+          source_type: 'folder'
+        }, ownerId);
       }
 
       const { data, error } = await supabase
@@ -914,7 +918,7 @@ export const dbService = {
             line: 1,
             recommended_fix: mem.fix,
             outcome: mem.outcome,
-            tags: ['seeding']
+            tags: ['personal']
           },
           owner_id: ownerId
         })
@@ -923,10 +927,16 @@ export const dbService = {
       if (error) throw error;
       return data.id;
     } else {
-      const memories = JSON.parse(localStorage.getItem('codemind_memories') || '[]');
-      memories.push({ ...mem, ownerId });
+      const memories: Memory[] = JSON.parse(localStorage.getItem('codemind_memories') || '[]');
+      const newId = mem.id && !mem.id.startsWith('mem-') ? mem.id : `mem-${ownerId.slice(-6)}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+      const memoryEntry: Memory = {
+        ...mem,
+        id: newId,
+        ownerId
+      };
+      memories.push(memoryEntry);
       localStorage.setItem('codemind_memories', JSON.stringify(memories));
-      return mem.id;
+      return newId;
     }
   },
 
@@ -945,12 +955,25 @@ export const dbService = {
       }));
     } else {
       const saved = localStorage.getItem('codemind_memories');
-      const memories = saved ? JSON.parse(saved) : INITIAL_MEMORIES;
-      return memories.filter((m: Memory) => {
-        const isSeed = /^mem-\d$/.test(m.id);
-        if (isSeed) return true;
-        return m.ownerId === ownerId;
-      });
+      if (!saved) return [];
+      const memories: Memory[] = JSON.parse(saved);
+      // Strictly user-oriented: only return memories owned by this user
+      return memories.filter((m: Memory) => m.ownerId === ownerId);
+    }
+  },
+
+  async deleteMemory(memoryId: string, ownerId: string): Promise<void> {
+    if (hasSupabaseCreds) {
+      const { error } = await supabase
+        .from('memories')
+        .delete()
+        .eq('id', memoryId)
+        .eq('owner_id', ownerId);
+      if (error) throw error;
+    } else {
+      const memories: Memory[] = JSON.parse(localStorage.getItem('codemind_memories') || '[]');
+      const updated = memories.filter((m: Memory) => m.id !== memoryId);
+      localStorage.setItem('codemind_memories', JSON.stringify(updated));
     }
   },
 

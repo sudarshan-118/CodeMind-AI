@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
-import { ArrowLeft, Search, Code, Share2, ZoomIn, ZoomOut, RotateCcw, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Search, Code, Share2, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { DependencyGraphView } from './DependencyGraphView';
 
 interface FileTreeNode {
   name: string;
@@ -769,11 +770,7 @@ Instructions:
   const [aiReviewText, setAiReviewText] = useState<string>('');
   const [loadingReview, setLoadingReview] = useState<boolean>(false);
   
-  // Graph zoom/pan state
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
 
   const project = projects.find(p => p.id === activeProjectId);
   if (!project) return <div>Project not found</div>;
@@ -973,45 +970,7 @@ Instructions:
     }
   };
 
-  // Graph mouse handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setPan({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleZoom = (factor: number) => {
-    setZoom(prev => Math.max(0.5, Math.min(2.5, prev * factor)));
-  };
-
-  const handleResetGraph = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-
-  // Check if file is affected by upstream vulnerability
-  // e.g. if 'auth.ts' has a critical issue, user.service.ts and database.ts are downstream dependencies
-  const isAffected = (f: ProjectFile) => {
-    if (f.riskState === 'safe') {
-      // check if any of its imports are critical/high
-      const importsVulnerable = project.files.some(other => 
-        other.riskState !== 'safe' && f.dependencies?.includes(other.path)
-      );
-      return importsVulnerable;
-    }
-    return false;
-  };
 
   // Render lines with highlights
   const renderCodeLines = () => {
@@ -1660,261 +1619,16 @@ Instructions:
           </div>
         )}
 
-        {/* Dependency Graph Visualizer */}
+        {/* Dependency Graph Visualizer (Phase 2 Upgrade) */}
         {activeTab === 'dep-graph' && (
-          <div className="dep-graph-container">
-            <div className="dep-graph-controls">
-              <button className="btn" style={{ padding: '6px 8px' }} onClick={() => handleZoom(1.2)} title="Zoom In">
-                <ZoomIn size={14} />
-              </button>
-              <button className="btn" style={{ padding: '6px 8px' }} onClick={() => handleZoom(0.8)} title="Zoom Out">
-                <ZoomOut size={14} />
-              </button>
-              <button className="btn" style={{ padding: '6px 8px' }} onClick={handleResetGraph} title="Reset view">
-                <RotateCcw size={14} />
-              </button>
-            </div>
-
-            <div 
-              className="dep-viewport-wrapper"
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
-              <svg width="100%" height="100%">
-                <g transform={`translate(${pan.x + 100}, ${pan.y + 120}) scale(${zoom})`}>
-                  
-                  {/* Arrows marker */}
-                  <defs>
-                    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                      <path d="M 0 2 L 10 5 L 0 8 z" fill="var(--border-color)" />
-                    </marker>
-                    <marker id="arrow-vulnerable" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                      <path d="M 0 2 L 10 5 L 0 8 z" fill="var(--critical-color)" />
-                    </marker>
-                  </defs>
-                  {(() => {
-                    const incoming: { [key: string]: number } = {};
-                    project.files.forEach(f => {
-                      incoming[f.path] = 0;
-                    });
-                    project.files.forEach(f => {
-                      f.dependencies?.forEach(dep => {
-                        if (incoming[dep] !== undefined) {
-                          incoming[dep]++;
-                        }
-                      });
-                    });
-
-                    // Keep files that have at least one dependency connection (incoming or outgoing)
-                    const connectedFiles = project.files.filter(f => {
-                      const inc = incoming[f.path] || 0;
-                      const out = f.dependencies?.length || 0;
-                      return inc > 0 || out > 0;
-                    });
-
-                    // Fallback to all files if no files are connected
-                    const filesToRender = connectedFiles.length > 0 ? connectedFiles : project.files;
-
-                    // Pre-calculate dynamic node positions using layered topological levels
-                    const coords: { [key: string]: { x: number; y: number } } = {};
-                    const levels: { [key: string]: number } = {};
-                    filesToRender.forEach(f => {
-                      levels[f.path] = 0;
-                    });
-
-                    // Compute maximum dependency path depth (topological level)
-                    for (let pass = 0; pass < 6; pass++) {
-                      let updated = false;
-                      filesToRender.forEach(f => {
-                        const currentLvl = levels[f.path] ?? 0;
-                        f.dependencies?.forEach(dep => {
-                          if (levels[dep] !== undefined) {
-                            const newLvl = currentLvl + 1;
-                            if (levels[dep] < newLvl) {
-                              levels[dep] = newLvl;
-                              updated = true;
-                            }
-                          }
-                        });
-                      });
-                      if (!updated) break;
-                    }
-
-                    // Group files into columns by level
-                    const colMap: { [level: number]: string[] } = {};
-                    filesToRender.forEach(f => {
-                      const lvl = levels[f.path] ?? 0;
-                      if (!colMap[lvl]) colMap[lvl] = [];
-                      colMap[lvl].push(f.id);
-                    });
-
-                    const levelKeys = Object.keys(colMap).map(Number).sort((a, b) => a - b);
-                    let maxColSize = 0;
-                    levelKeys.forEach(lvl => {
-                      maxColSize = Math.max(maxColSize, colMap[lvl].length);
-                    });
-
-                    const rowHeight = 90;
-                    const colWidth = 260;
-
-                    levelKeys.forEach((lvl, colIdx) => {
-                      const colFiles = colMap[lvl];
-                      const colHeight = colFiles.length * rowHeight;
-                      const maxHeight = maxColSize * rowHeight;
-                      const startY = 40 + (maxHeight - colHeight) / 2;
-
-                      colFiles.forEach((id, rowIdx) => {
-                        coords[id] = {
-                          x: 50 + colIdx * colWidth,
-                          y: startY + rowIdx * rowHeight
-                        };
-                      });
-                    });
-
-                    // Fallback for safety
-                    project.files.forEach((f, idx) => {
-                      if (!coords[f.id]) {
-                        coords[f.id] = { x: 50, y: 40 + idx * rowHeight };
-                      }
-                    });
-
-                    return (
-                      <>
-                        {/* Render lines */}
-                        {filesToRender.map((file) => {
-                          const isVulnerable = file.issues.some(i => !i.applied);
-                          const pos = coords[file.id];
-                          
-                          return (
-                            <g key={`links-${file.id}`}>
-                              {file.dependencies?.map((depPath, dIdx) => {
-                                const targetFile = project.files.find(tf => tf.path === depPath);
-                                if (!targetFile) return null;
-                                const targetPos = coords[targetFile.id];
-                                if (!targetPos) return null;
-
-                                const lineVulnerable = isVulnerable || targetFile.issues.some(ti => !ti.applied);
-
-                                let x1 = pos.x + 65;
-                                let y1 = pos.y + 18;
-                                let x2 = targetPos.x + 65;
-                                let y2 = targetPos.y + 18;
-                                let pathD = '';
-
-                                if (targetPos.x > pos.x) {
-                                  // Flowing right
-                                  x1 = pos.x + 130;
-                                  x2 = targetPos.x;
-                                  const cx = (x2 - x1) * 0.5;
-                                  pathD = `M ${x1} ${y1} C ${x1 + cx} ${y1}, ${x2 - cx} ${y2}, ${x2} ${y2}`;
-                                } else if (targetPos.x < pos.x) {
-                                  // Flowing left (backwards/circular)
-                                  x1 = pos.x;
-                                  x2 = targetPos.x + 130;
-                                  const cx = (x1 - x2) * 0.5;
-                                  pathD = `M ${x1} ${y1} C ${x1 - cx} ${y1}, ${x2 + cx} ${y2}, ${x2} ${y2}`;
-                                } else {
-                                  // Same column
-                                  if (targetPos.y > pos.y) {
-                                    x1 = pos.x + 65;
-                                    y1 = pos.y + 36;
-                                    x2 = targetPos.x + 65;
-                                    y2 = targetPos.y;
-                                  } else {
-                                    x1 = pos.x + 65;
-                                    y1 = pos.y;
-                                    x2 = targetPos.x + 65;
-                                    y2 = targetPos.y + 36;
-                                  }
-                                  pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
-                                }
-
-                                return (
-                                  <path
-                                    key={`line-${file.id}-${dIdx}`}
-                                    d={pathD}
-                                    className={`dep-graph-line ${lineVulnerable ? 'affected' : ''}`}
-                                    markerEnd={lineVulnerable ? "url(#arrow-vulnerable)" : "url(#arrow)"}
-                                    fill="none"
-                                  />
-                                );
-                              })}
-                            </g>
-                          );
-                        })}
-
-                        {/* Render nodes */}
-                        {filesToRender.map((file) => {
-                          const hasIssues = file.issues.some(i => !i.applied);
-                          const fileAffected = isAffected(file);
-                          const pos = coords[file.id];
-
-                          let nodeClass = '';
-                          if (hasIssues) {
-                            nodeClass = file.riskState === 'critical' ? 'vulnerable' : 'warning';
-                          } else if (fileAffected) {
-                            nodeClass = 'affected';
-                          }
-
-                          if (activeFile.id === file.id) {
-                            nodeClass += ' active';
-                          }
-
-                          return (
-                            <g 
-                              key={`node-${file.id}`}
-                              className={`dep-graph-node ${nodeClass}`}
-                              transform={`translate(${pos.x}, ${pos.y})`}
-                              onClick={() => onSelectFile(file.id)}
-                              style={{ cursor: 'pointer' }}
-                            >
-                              <rect width="130" height="36" rx="4" />
-                              <text x="12" y="22" fill="var(--text-primary)" style={{ fontSize: '11px', fontWeight: 600 }}>📄 {file.name}</text>
-                              {hasIssues && (
-                                <circle cx="118" cy="18" r="4" fill={file.riskState === 'critical' ? 'var(--critical-color)' : 'var(--warning-color)'} />
-                              )}
-                              {fileAffected && !hasIssues && (
-                                <circle cx="118" cy="18" r="4" fill="var(--critical-color)" style={{ opacity: 0.6 }} />
-                              )}
-                            </g>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </g>
-              </svg>
-            </div>
-            
-            {/* Legend banner */}
-            <div style={{
-              position: 'absolute',
-              bottom: '16px',
-              right: '16px',
-              backgroundColor: 'var(--card-color)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              padding: '10px 14px',
-              display: 'flex',
-              gap: '16px',
-              fontSize: '11px',
-              color: 'var(--text-secondary)'
-            }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--critical-color)' }}></span>
-                Vulnerable File
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success-color)' }}></span>
-                Clean File
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', border: '1px dashed rgba(239, 68, 68, 0.6)', borderRadius: '50%' }}></span>
-                Affected Dependency
-              </span>
-            </div>
+          <div style={{ flex: 1, height: '100%', overflow: 'hidden' }}>
+            <DependencyGraphView
+              project={project}
+              activeFileId={activeFile.id}
+              onSelectFile={(id) => {
+                onSelectFile(id);
+              }}
+            />
           </div>
         )}
       </div>
