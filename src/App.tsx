@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Project, Memory, Standard, Activity } from './types';
-import { INITIAL_STANDARDS, INITIAL_MEMORIES } from './mockData';
+import { INITIAL_STANDARDS } from './mockData';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { ProjectWorkspace } from './components/ProjectWorkspace';
@@ -214,23 +214,6 @@ export default function App() {
         // Fetch after seeding if anything was updated
         if (seededAny) {
           currentStdList = await dbService.getStandards(ownerId);
-        }
-
-        let seededMemories = false;
-        if (currentMemList.length === 0) {
-          console.log('CodeMind AI: Seeding personal default memories for user:', ownerId);
-          for (const mem of INITIAL_MEMORIES) {
-            try {
-              await dbService.createMemoryFromModel(mem, ownerId);
-              seededMemories = true;
-            } catch (seedErr) {
-              console.error('Failed to seed memory on boot:', seedErr);
-            }
-          }
-        }
-
-        if (seededMemories) {
-          currentMemList = await dbService.getMemories(ownerId);
         }
 
         setProjects(currentProjList);
@@ -616,30 +599,6 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
         });
 
         const memoryPromises: Promise<any>[] = [];
-
-        // Seed default memories if memories is empty
-        if (memories.length === 0) {
-          console.log('CodeMind AI: Seeding default memories on first project import');
-          INITIAL_MEMORIES.forEach(mem => {
-            memoryPromises.push(
-              dbService.saveMemory({
-                project_id: dbProjId,
-                memory_type: 'security',
-                title: mem.issue.split(' in ')[0],
-                description: mem.recommendation,
-                memory_data: {
-                  issue_type: mem.issue,
-                  severity: 'high',
-                  file: mem.issue.split(' in ')[1] || '',
-                  line: 1,
-                  recommended_fix: mem.fix,
-                  outcome: mem.outcome,
-                  tags: ['seeding']
-                }
-              }, user?.id || '').catch(err => console.error('Error seeding memory:', err))
-            );
-          });
-        }
 
         // Save extracted memories from the ingested project
         if (newProj.extractedMemories && newProj.extractedMemories.length > 0) {

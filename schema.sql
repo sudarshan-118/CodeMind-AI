@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS dependency_graphs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 7. Activities Table (Console Intelligence Log)
+CREATE TABLE IF NOT EXISTS activities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    type TEXT NOT NULL, -- 'info' | 'warning' | 'critical' | 'success'
+    time TEXT,
+    owner_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- DISABLE Row Level Security (RLS) on all tables to allow local testing and prevent RLS failures
 -- Run these commands to disable RLS if your Clerk auth JWT synchronization is not fully configured.
 ALTER TABLE projects DISABLE ROW LEVEL SECURITY;
@@ -84,6 +95,7 @@ ALTER TABLE memories DISABLE ROW LEVEL SECURITY;
 ALTER TABLE vulnerabilities DISABLE ROW LEVEL SECURITY;
 ALTER TABLE team_standards DISABLE ROW LEVEL SECURITY;
 ALTER TABLE dependency_graphs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE activities DISABLE ROW LEVEL SECURITY;
 
 -- Create GIN indexes for fast querying of JSONB properties
 CREATE INDEX IF NOT EXISTS idx_memories_data ON memories USING gin (memory_data);

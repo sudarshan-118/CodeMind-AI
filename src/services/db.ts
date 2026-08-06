@@ -1,6 +1,6 @@
 import { supabase } from '../supabaseClient';
 import type { Project, Memory, Standard, Activity, ProjectFile, Issue } from '../types';
-import { INITIAL_PROJECTS, INITIAL_STANDARDS, INITIAL_ACTIVITIES } from '../mockData';
+import { INITIAL_PROJECTS, INITIAL_STANDARDS } from '../mockData';
 
 function getMockCodeForFile(filename: string): string {
   const found = INITIAL_PROJECTS.flatMap(p => p.files).find(f => f.name === filename);
@@ -268,8 +268,9 @@ export const dbService = {
       return projectsList;
     } else {
       const saved = localStorage.getItem('codemind_projects');
-      const projects = saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-      return projects.filter((p: Project) => !p.ownerId || p.ownerId === ownerId);
+      if (!saved) return [];
+      const projects: Project[] = JSON.parse(saved);
+      return projects.filter((p: Project) => p.ownerId === ownerId);
     }
   },
 
@@ -459,6 +460,7 @@ export const dbService = {
 
   // 6. Memory Fetching
   async getProjectMemories(projectId?: string, ownerId?: string): Promise<DBMemory[]> {
+    if (!ownerId && !projectId) return [];
     if (hasSupabaseCreds) {
       let query = supabase.from('memories').select('*');
       if (projectId) query = query.eq('project_id', projectId);
@@ -471,7 +473,7 @@ export const dbService = {
       const rawMems = JSON.parse(localStorage.getItem('codemind_raw_memories') || '[]');
       return rawMems.filter((m: DBMemory) => 
         (!projectId || m.project_id === projectId) && 
-        (!ownerId || m.owner_id === ownerId)
+        (ownerId ? (m.owner_id === ownerId || (m as any).ownerId === ownerId) : false)
       );
     }
   },
@@ -868,6 +870,23 @@ export const dbService = {
 
   // 13. Activities persistence
   async createActivity(act: Activity, ownerId: string): Promise<string> {
+    if (!ownerId) return act.id;
+    if (hasSupabaseCreds) {
+      try {
+        const { error } = await supabase
+          .from('activities')
+          .insert({
+            project_id: act.projectId || null,
+            text: act.text,
+            type: act.type,
+            time: act.time || 'Just now',
+            owner_id: ownerId
+          });
+        if (error) console.warn('Supabase activities insert failed (falling back to local storage):', error.message);
+      } catch (err) {
+        console.error('Failed to create activity in Supabase:', err);
+      }
+    }
     // Always persist to localStorage for fast access
     const activities = JSON.parse(localStorage.getItem('codemind_activities') || '[]');
     const newAct = { ...act, ownerId };
@@ -879,9 +898,33 @@ export const dbService = {
   },
 
   async getActivities(ownerId: string): Promise<Activity[]> {
+    if (!ownerId) return [];
+    if (hasSupabaseCreds) {
+      try {
+        const { data, error } = await supabase
+          .from('activities')
+          .select('*')
+          .eq('owner_id', ownerId)
+          .order('created_at', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          return data.map((a: any) => ({
+            id: a.id,
+            text: a.text,
+            type: a.type,
+            time: a.time || 'Just now',
+            projectId: a.project_id,
+            ownerId: a.owner_id
+          }));
+        }
+      } catch (err) {
+        console.error('Error fetching activities from Supabase:', err);
+      }
+    }
     const saved = localStorage.getItem('codemind_activities');
-    const activities = saved ? JSON.parse(saved) : INITIAL_ACTIVITIES;
-    return activities.filter((a: Activity) => !a.ownerId || a.ownerId === ownerId);
+    if (!saved) return [];
+    const activities: Activity[] = JSON.parse(saved);
+    return activities.filter((a: Activity) => a.ownerId === ownerId);
   },
 
   // 14. Memories management
@@ -941,6 +984,7 @@ export const dbService = {
   },
 
   async getMemories(ownerId: string): Promise<Memory[]> {
+    if (!ownerId) return [];
     if (hasSupabaseCreds) {
       const data = await dbService.getProjectMemories(undefined, ownerId);
       return data.map((m: DBMemory) => ({

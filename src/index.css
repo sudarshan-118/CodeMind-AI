@@ -68,13 +68,25 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Header / Navigation */
 .main-header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 12px 24px;
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   z-index: 10;
+}
+
+.main-header > :nth-child(1) {
+  justify-self: start;
+}
+
+.main-header > :nth-child(2) {
+  justify-self: center;
+}
+
+.main-header > :nth-child(3) {
+  justify-self: end;
 }
 
 .logo-section {
