@@ -9,6 +9,7 @@ import { TeamStandards } from './components/TeamStandards';
 import { ReportGenerator } from './components/ReportGenerator';
 import { dbService } from './services/db';
 import { supabase } from './supabaseClient';
+import { RepositoryMemoryEngine } from './backend';
 import { Brain, LayoutDashboard, Code, BookOpen, ToggleLeft } from 'lucide-react';
 import { useUser, useAuth, UserButton } from '@clerk/clerk-react';
 
@@ -669,6 +670,37 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
     });
   };
 
+  const handleDeleteProject = (projectId: string) => {
+    const proj = projects.find(p => p.id === projectId);
+    const projName = proj ? proj.name : 'Project';
+
+    if (user?.id) {
+      dbService.deleteProject(projectId, user.id).catch(err => {
+        console.error('Failed to delete project from DB:', err);
+      });
+    }
+
+    RepositoryMemoryEngine.clearProjectMemory(projectId);
+
+    const remainingMemories = memories.filter(m => m.projectId !== projectId);
+    saveMemories(remainingMemories);
+
+    const remainingProjects = projects.filter(p => p.id !== projectId);
+    saveProjects(remainingProjects);
+
+    if (activeProjectId === projectId) {
+      setActiveProjectId(remainingProjects.length > 0 ? remainingProjects[0].id : null);
+    }
+
+    handleAddActivity({
+      id: `act-${Date.now()}`,
+      projectId: '',
+      type: 'warning',
+      time: 'Just now',
+      text: `Deleted project "${projName}" and cleared associated recurring memory ledger.`
+    });
+  };
+
   const handleAddActivity = (newAct: Activity) => {
     saveActivities([newAct, ...activities]);
     if (user?.id) {
@@ -1035,6 +1067,7 @@ Instructions:
             onSelectProject={handleSelectProject}
             onImportProject={handleImportProject}
             onAddActivity={handleAddActivity}
+            onDeleteProject={handleDeleteProject}
             autoOpenIngest={autoOpenIngest}
             clearAutoOpenIngest={() => setAutoOpenIngest(false)}
           />
@@ -1050,6 +1083,7 @@ Instructions:
             onSelectFile={handleSelectFile}
             onApplyFix={handleApplyFix}
             onBackToDashboard={() => setView('dashboard')}
+            onDeleteProject={handleDeleteProject}
           />
         )}
 

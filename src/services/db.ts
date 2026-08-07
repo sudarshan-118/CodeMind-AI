@@ -868,6 +868,28 @@ export const dbService = {
     }
   },
 
+  async deleteProject(projectId: string, ownerId: string): Promise<void> {
+    if (hasSupabaseCreds) {
+      await supabase.from('vulnerabilities').delete().eq('project_id', projectId);
+      await supabase.from('reviews').delete().eq('project_id', projectId);
+      await supabase.from('dependency_graphs').delete().eq('project_id', projectId);
+      await supabase.from('memories').delete().eq('project_id', projectId);
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+        .eq('owner_id', ownerId);
+      if (error) throw error;
+    } else {
+      const saved = localStorage.getItem('codemind_projects');
+      if (saved) {
+        const projects = JSON.parse(saved);
+        const filtered = projects.filter((p: any) => !(p.id === projectId && p.ownerId === ownerId));
+        localStorage.setItem('codemind_projects', JSON.stringify(filtered));
+      }
+    }
+  },
+
   // 13. Activities persistence
   async createActivity(act: Activity, ownerId: string): Promise<string> {
     if (!ownerId) return act.id;

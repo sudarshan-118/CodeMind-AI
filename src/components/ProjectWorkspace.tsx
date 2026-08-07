@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
-import { ArrowLeft, Search, Code, Share2, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Search, Code, Share2, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw, Trash2 } from 'lucide-react';
 import { DependencyGraphView } from './DependencyGraphView';
 
 interface FileTreeNode {
@@ -462,6 +462,7 @@ interface ProjectWorkspaceProps {
   onSelectFile: (id: string) => void;
   onApplyFix: (projectId: string, fileId: string, issueId: string, customCode?: string) => void;
   onBackToDashboard: () => void;
+  onDeleteProject?: (id: string) => void;
 }
 
 const getSimilarityScore = (issueType: string, memoryIssue: string): number => {
@@ -490,7 +491,8 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   onSelectProject,
   onSelectFile,
   onApplyFix,
-  onBackToDashboard
+  onBackToDashboard,
+  onDeleteProject
 }) => {
   const [activeTab, setActiveTab] = useState<'explorer' | 'ai-agent' | 'dep-graph'>('explorer');
   const [fixingIssueId, setFixingIssueId] = useState<string | null>(null);
@@ -1022,18 +1024,34 @@ Instructions:
             <span style={{ fontWeight: 700, fontSize: '15px' }}>Workspace</span>
           </div>
 
-          <div style={{ position: 'relative' }}>
-            <select 
-              className="form-input" 
-              style={{ paddingRight: '28px', cursor: 'pointer', appearance: 'none' }}
-              value={project.id}
-              onChange={(e) => onSelectProject(e.target.value)}
-            >
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }}>▼</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <select 
+                className="form-input" 
+                style={{ paddingRight: '28px', cursor: 'pointer', appearance: 'none', width: '100%' }}
+                value={project.id}
+                onChange={(e) => onSelectProject(e.target.value)}
+              >
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }}>▼</span>
+            </div>
+            {onDeleteProject && (
+              <button
+                className="btn btn-danger"
+                style={{ padding: '6px 10px' }}
+                title="Delete project & recurring memory"
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete "${project.name}" and all its recorded recurring memory?`)) {
+                    onDeleteProject(project.id);
+                  }
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
 
           <div className="sidebar-search-box">

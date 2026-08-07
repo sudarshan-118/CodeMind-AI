@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Brain, Layers, Activity, Code, LayoutDashboard, BookOpen } from 'lucide-react';
+import { Shield, Brain, Layers, Activity, Code, LayoutDashboard, BookOpen, FileText, Cpu, Database, Network, GitBranch } from 'lucide-react';
 import { SignInButton, SignUpButton, useAuth, UserButton } from '@clerk/clerk-react';
 import productPreview from '../assets/product_preview.png';
 
@@ -13,14 +13,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
   return (
     <div style={{ backgroundColor: '#0B1220', minHeight: '100vh', width: '100%', color: '#F9FAFB' }}>
       {/* Navbar */}
-      <header className="main-header" style={{ padding: '16px 40px' }}>
+      <header className="main-header" style={{ padding: '16px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="logo-section">
           <Brain className="logo-icon" size={20} />
           <span>CodeMind AI</span>
         </div>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <a href="#features" className="nav-item" style={{ fontSize: '13px' }}>Capabilities</a>
-          <a href="#how-it-works" className="nav-item" style={{ fontSize: '13px' }}>Workflow</a>
+
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <a href="#features" className="nav-item" style={{ fontSize: '13px', padding: '8px 12px', minWidth: 'auto' }}>Capabilities</a>
+            <a href="#how-it-works" className="nav-item" style={{ fontSize: '13px', padding: '8px 12px', minWidth: 'auto' }}>Workflow</a>
+          </div>
           {isSignedIn ? (
             <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
               <button className="btn btn-primary" onClick={() => onEnterApp('dashboard')}>
@@ -65,11 +68,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
           CodeMind AI
         </h1>
         <p className="hero-subtitle">
-          Review projects, track vulnerabilities, and build engineering memory over time.
+          Deterministic repository analysis & engineering-first intelligence.
         </p>
         
         <p style={{ color: 'var(--text-secondary)', maxWidth: '600px', margin: '-16px auto 32px auto', fontSize: '14px', lineHeight: '1.55' }}>
-          Upload a repository, folder, ZIP, or file. CodeMind analyzes the codebase, highlights risks, stores findings, and uses previous reviews to improve future analysis.
+          CodeMind performs deterministic repository analysis using static analysis, graph algorithms and custom risk scoring. AI is only used to explain findings and recommend fixes.
         </p>
 
         <div className="hero-cta">
@@ -126,7 +129,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
             
             <img 
               src={productPreview} 
-              alt="CodeMind AI Workspace Console preview showing Project Tree, Risk Highlights, Code Inspector, and Memory Center" 
+              alt="CodeMind AI Workspace Console preview showing Project Tree, Risk Highlights, Code Inspector, and Repository Memory" 
               style={{ 
                 width: '100%', 
                 height: 'auto', 
@@ -156,8 +159,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>Analyze files with line-by-line diagnostics and direct resolution actions.</p>
             </div>
             <div style={{ padding: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--card-color)', borderRadius: '4px' }}>
-              <h4 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>Memory Center</h4>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>Queryable record database of past vulnerabilities and user fixes.</p>
+              <h4 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>Repository Memory</h4>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>Store repository snapshots, compare health, and track technical debt.</p>
             </div>
           </div>
         </div>
@@ -178,23 +181,44 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
           }}>
             <div style={{ padding: '24px', backgroundColor: 'var(--card-color)', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-color)', marginBottom: '8px' }}>STEP 1</div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Import Project</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>Connect a GitHub repository URL, upload a ZIP archive, folder, or individual code file.</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Repository Scanner</h3>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                <li>Import GitHub repository or ZIP</li>
+                <li>Scan project structure</li>
+                <li>Ignore unnecessary files</li>
+                <li>Detect repository metadata</li>
+              </ul>
             </div>
             <div style={{ padding: '24px', backgroundColor: 'var(--card-color)', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-color)', marginBottom: '8px' }}>STEP 2</div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Analyze Codebase</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>Run checks covering security defects, structural issues, performance bottlenecks, and code quality.</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Language Detection & Parsing</h3>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                <li>Detect programming languages</li>
+                <li>Parse source files</li>
+                <li>Generate Unified AST</li>
+                <li>Extract symbols and relationships</li>
+              </ul>
             </div>
             <div style={{ padding: '24px', backgroundColor: 'var(--card-color)', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-color)', marginBottom: '8px' }}>STEP 3</div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Review Findings</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>Inspect highlighted vulnerable code paths within the file tree and apply recommended modifications.</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Repository Intelligence</h3>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                <li>Static Analysis</li>
+                <li>Security Analysis</li>
+                <li>Dependency Graph & Knowledge Graph</li>
+                <li>Architecture Detection & Risk Scoring</li>
+              </ul>
             </div>
             <div style={{ padding: '24px', backgroundColor: 'var(--card-color)', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-color)', marginBottom: '8px' }}>STEP 4</div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Build Memory</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>Store approved modifications and findings in the local database to improve future code analysis.</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px' }}>Insights & AI Assistance</h3>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                <li>Historical Memory</li>
+                <li>Trend Analysis</li>
+                <li>Risk Prediction</li>
+                <li>AI-powered explanation</li>
+                <li>Interactive dashboard</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -203,43 +227,71 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
         <div id="features" className="features-section" style={{ borderTop: '1px solid var(--border-color)' }}>
           <div className="section-header">
             <h2 className="section-title">Core Capabilities</h2>
-            <p className="section-desc">Designed to audit software structure and maintain high standard compliance.</p>
+            <p className="section-desc">Engineering-first repository intelligence powered by rule-based analysis and graph algorithms.</p>
           </div>
           <div className="features-grid">
             <div className="feature-card">
               <div className="feature-icon-wrapper">
                 <Code size={18} />
               </div>
-              <h3>Project Analysis</h3>
-              <p>Review entire repositories dynamically. Tracks statistics including files found, folders processed, and lines scanned.</p>
+              <h3>Repository Scanner</h3>
+              <p>Scans repositories, detects languages, collects metadata and prepares projects for deterministic analysis.</p>
             </div>
             <div className="feature-card">
               <div className="feature-icon-wrapper">
-                <Layers size={18} />
+                <FileText size={18} />
               </div>
-              <h3>Dependency Graph</h3>
-              <p>Traces structural imports and module relationships. Visually inspects how vulnerable files affect downstream services.</p>
+              <h3>Unified Parsing</h3>
+              <p>Parses source code into a common internal representation for language-independent analysis.</p>
             </div>
             <div className="feature-card">
               <div className="feature-icon-wrapper">
-                <Brain size={18} />
+                <Cpu size={18} />
               </div>
-              <h3>Memory Center</h3>
-              <p>Timeline-based audit catalog that records previous findings, recommended fixes, and applied code modifications.</p>
+              <h3>Static Analysis</h3>
+              <p>Evaluates complexity, maintainability, duplicate code, documentation quality and code smells.</p>
             </div>
             <div className="feature-card">
               <div className="feature-icon-wrapper">
                 <Shield size={18} />
               </div>
-              <h3>Security Review</h3>
-              <p>Detects security risks, credentials leaks, and execution patterns. Flags critical vulnerabilities in source lines.</p>
+              <h3>Security Engine</h3>
+              <p>Detects hardcoded secrets, injection risks, unsafe functions and common security vulnerabilities.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon-wrapper">
+                <GitBranch size={18} />
+              </div>
+              <h3>Dependency Graph</h3>
+              <p>Builds file-to-file dependency relationships, detects circular dependencies and supports impact analysis.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon-wrapper">
+                <Network size={18} />
+              </div>
+              <h3>Knowledge Graph</h3>
+              <p>Creates rich relationships between files, classes, functions and modules for repository intelligence.</p>
             </div>
             <div className="feature-card">
               <div className="feature-icon-wrapper">
                 <Activity size={18} />
               </div>
-              <h3>Health Score</h3>
-              <p>Calculates project health metrics based on architectural guidelines, performance issues, and open vulnerability files.</p>
+              <h3>Risk Engine</h3>
+              <p>Calculates repository, folder and file risk scores using deterministic weighted algorithms.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon-wrapper">
+                <Database size={18} />
+              </div>
+              <h3>Historical Memory</h3>
+              <p>Stores repository snapshots, compares previous analyses and tracks project evolution.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon-wrapper">
+                <Brain size={18} />
+              </div>
+              <h3>AI Explanation Layer</h3>
+              <p>Uses AI only to explain structured findings and recommend fixes instead of analyzing the entire repository.</p>
             </div>
           </div>
         </div>
@@ -254,13 +306,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
           }}>
             <div>
               <h2 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px' }}>
-                Engineering Memory System
+                Repository Memory
               </h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6', marginBottom: '16px' }}>
-                Traditional scanners evaluate code snippets in isolation, losing historical context of past fixes. CodeMind stores every applied fix and vulnerability resolution in a queryable memory database.
+                CodeMind performs deterministic repository analysis using static analysis, graph algorithms and custom risk scoring. AI is only used to explain findings and recommend improvements.
               </p>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6' }}>
-                As your codebase evolves, new pull requests are evaluated against previous fixes. The pipeline checks for regression patterns and flags when resolved risks reappear in new modules or downstream files.
+                This reduces token usage, improves consistency and makes analysis explainable across every version of your project.
               </p>
             </div>
             <div style={{ 
@@ -270,31 +322,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               padding: '24px'
             }}>
               <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                Memory Match Pipeline
+                Repository Memory Overview
               </h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', flexShrink: 0 }} />
-                  <div style={{ fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Identify Risk:</span> SQL Injection vulnerability found in user credentials routing.
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Store repository snapshots after each analysis.
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--success-color)', flexShrink: 0 }} />
-                  <div style={{ fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Fix Applied:</span> Parameterized query configuration replaced raw concatenation.
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', flexShrink: 0 }} />
-                  <div style={{ fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Store Memory:</span> Database records resolution pattern automatically.
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Compare previous and current repository health.
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--warning-color)', flexShrink: 0 }} />
-                  <div style={{ fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Regressions Blocked:</span> Future scans matching SQL raw statements block integration.
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Track technical debt evolution.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', flexShrink: 0 }} />
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Generate repository trends over time.
                   </div>
                 </div>
               </div>
@@ -307,7 +359,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
       <footer className="landing-footer" style={{ padding: '40px 60px' }}>
         <div>
           <span style={{ fontWeight: 700, color: '#F9FAFB' }}>CodeMind AI</span>
-          <p style={{ marginTop: '8px', color: '#94A3B8', fontSize: '12px' }}>Memory-Powered Engineering Intelligence Platform.</p>
+          <p style={{ marginTop: '8px', color: '#94A3B8', fontSize: '12px' }}>Deterministic Engineering Intelligence Platform.</p>
         </div>
         <div style={{ display: 'flex', gap: '30px' }}>
           <span>© 2026 CodeMind AI Inc.</span>
@@ -318,3 +370,4 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
     </div>
   );
 };
+

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Project, Activity, Memory, Standard, ProjectFile } from '../types';
-import { GitBranch, FolderOpen, Play, Plus, X, Globe, Upload, File, Loader } from 'lucide-react';
+import { GitBranch, FolderOpen, Play, Plus, X, Globe, Upload, File, Loader, Trash2 } from 'lucide-react';
 import { INITIAL_PROJECTS } from '../mockData';
 import JSZip from 'jszip';
 import { CodeMindEngine, RepositoryMemoryEngine } from '../backend';
@@ -481,6 +481,7 @@ interface DashboardProps {
   onSelectProject: (id: string) => void;
   onImportProject: (p: Project) => void;
   onAddActivity: (a: Activity) => void;
+  onDeleteProject?: (id: string) => void;
   autoOpenIngest?: boolean;
   clearAutoOpenIngest?: () => void;
 }
@@ -489,11 +490,11 @@ const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export const Dashboard: React.FC<DashboardProps> = ({
   projects, memories, activities, analytics, standards: _standards,
-  onSelectProject, onImportProject, onAddActivity,
+  onSelectProject, onImportProject, onAddActivity, onDeleteProject,
   autoOpenIngest, clearAutoOpenIngest,
 }) => {
   const [showModal,       setShowModal]       = useState(false);
-  const [importType,      setImportType]      = useState<'git' | 'zip' | 'folder' | 'file'>('folder');
+  const [importType,      setImportType]      = useState<'git' | 'zip' | 'folder' | 'file'>('git');
   const [gitUrl,          setGitUrl]          = useState('');
   const [projectName,     setProjectName]     = useState('');
   const [isIngesting,     setIsIngesting]     = useState(false);
@@ -633,6 +634,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setProjectName('');
       setGitUrl('');
       setSelectedFiles([]);
+      setImportType('git');
 
     } catch (err) {
       addLog(`❌ Pipeline failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -775,9 +777,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                       <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{proj.name}</h3>
-                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginLeft: '8px' }}>
-                        {proj.language}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          {proj.language}
+                        </span>
+                        {onDeleteProject && (
+                          <button
+                            title="Delete project & recurring memory"
+                            className="btn btn-danger"
+                            style={{ padding: '3px 7px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Are you sure you want to delete "${proj.name}" and all its recorded recurring memory?`)) {
+                                onDeleteProject(proj.id);
+                              }
+                            }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.4 }}>{proj.description}</p>
 
@@ -809,9 +828,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         {proj.overallScore}%
                       </span>
                     </div>
-                    <button className="btn" onClick={() => onSelectProject(proj.id)}>
-                      Open Workspace <Play size={11} style={{ fill: 'currentColor' }} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button className="btn" onClick={() => onSelectProject(proj.id)}>
+                        Open Workspace <Play size={11} style={{ fill: 'currentColor' }} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

@@ -37,6 +37,15 @@ export class RepositoryMemoryEngine {
     }
   }
 
+  public static clearProjectMemory(projectId: string): void {
+    try {
+      localStorage.removeItem(this.getStorageKey(projectId));
+      localStorage.removeItem(this.getTimelineKey(projectId));
+    } catch (err) {
+      console.warn('CodeMind Memory: Failed to clear project memory', err);
+    }
+  }
+
   /**
    * Immutable Snapshot Ledger: Always append new run snapshot without overwriting past history.
    */
