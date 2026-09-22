@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Brain, Layers, Activity, Code, LayoutDashboard, BookOpen, FileText, Cpu, Database, Network, GitBranch } from 'lucide-react';
+import { Shield, Brain, Activity, Code, LayoutDashboard, BookOpen, FileText, Cpu, Database, Network, GitBranch } from 'lucide-react';
 import { SignInButton, SignUpButton, useAuth, UserButton } from '@clerk/clerk-react';
 import productPreview from '../assets/product_preview.png';
 

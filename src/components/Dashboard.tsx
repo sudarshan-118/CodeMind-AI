@@ -131,69 +131,134 @@ const fetchGitHubFiles = async (
   log: (m: string) => void,
   setProgress: (n: number) => void
 ): Promise<{ files: ParsedFile[]; foldersFound: number; repoName: string; branch: string }> => {
-  // Parse URL: https://github.com/owner/repo or git@github.com:owner/repo
-  const match = gitUrl.replace(/\.git$/, '').match(/github\.com[/:]([^/]+)\/([^/\s]+)/);
-  if (!match) throw new Error('Invalid GitHub URL. Expected: https://github.com/owner/repo');
-  const owner = match[1];
-  const repoName = match[2];
+  // Parse URL formats: owner/repo, https://github.com/owner/repo, git@github.com:owner/repo.git
+  let cleaned = gitUrl.trim().replace(/\.git$/i, '').replace(/\/+$/, '');
+  
+  let owner = '';
+  let repoName = '';
+  
+  if (cleaned.includes('github.com')) {
+    const match = cleaned.match(/github\.com[/:]([^/]+)\/([^/\s]+)/);
+    if (!match) throw new Error('Invalid GitHub URL. Format: https://github.com/owner/repository');
+    owner = match[1];
+    repoName = match[2].split('/')[0].split('?')[0].split('#')[0];
+  } else if (cleaned.includes('/')) {
+    const parts = cleaned.split('/');
+    owner = parts[0];
+    repoName = parts[1].split('?')[0].split('#')[0];
+  } else {
+    throw new Error('Invalid GitHub format. Please use "owner/repository" or "https://github.com/owner/repository"');
+  }
 
   log(`🌐 Connecting to GitHub API for: ${owner}/${repoName}…`);
 
   const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json' };
-
-  // Get repo metadata
-  const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, { headers });
-  if (!repoRes.ok) {
-    if (repoRes.status === 404) throw new Error(`Repository not found: ${owner}/${repoName}. Check it's public.`);
-    if (repoRes.status === 403) throw new Error('GitHub API rate limit hit. Wait 60 mins or upload a ZIP instead.');
-    throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
+  const ghToken = import.meta.env.VITE_GITHUB_TOKEN;
+  if (ghToken && typeof ghToken === 'string' && ghToken.trim() !== '') {
+    headers['Authorization'] = `Bearer ${ghToken.trim()}`;
   }
-  const repoMeta = await repoRes.json();
-  const branch: string = repoMeta.default_branch ?? 'main';
-  const repoLang: string = repoMeta.language ?? '';
-  log(`📦 ${repoMeta.full_name} · branch: ${branch} · language: ${repoLang || 'mixed'} · ${repoMeta.stargazers_count ?? 0} ⭐`);
+
+  let branch = 'main';
+  let allItems: { path: string; type: 'blob' | 'tree'; size?: number }[] = [];
+
+  // 1. Fetch Repository Metadata
+  try {
+    let repoRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, { headers });
+    if (!repoRes.ok && repoRes.status === 401 && headers['Authorization']) {
+      delete headers['Authorization'];
+      repoRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, { headers });
+    }
+    if (repoRes.ok) {
+      const repoMeta = await repoRes.json();
+      branch = repoMeta.default_branch ?? 'main';
+      log(`📦 ${repoMeta.full_name} · branch: "${branch}" · ${repoMeta.stargazers_count ?? 0} ⭐`);
+    } else {
+      log(`⚠️ GitHub API info returned HTTP ${repoRes.status}. Using fallback branch probe…`);
+    }
+  } catch {
+    log(`⚠️ Network check completed. Probing branch tree…`);
+  }
+
   setProgress(15);
 
-  // Fetch full recursive tree
-  const treeRes = await fetch(
-    `https://api.github.com/repos/${owner}/${repoName}/git/trees/${branch}?recursive=1`,
-    { headers }
-  );
-  if (!treeRes.ok) throw new Error(`Failed to fetch file tree: ${treeRes.status}`);
-  const treeData = await treeRes.json();
-  if (treeData.truncated) log(`⚠️ Repo has >100k objects — showing first batch.`);
+  // 2. Fetch File Tree via Git Trees API
+  const branchesToTry = Array.from(new Set([branch, 'main', 'master', 'dev', 'development']));
+  for (const b of branchesToTry) {
+    try {
+      log(`🔍 Requesting repository tree for branch "${b}"…`);
+      const treeRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repoName}/git/trees/${encodeURIComponent(b)}?recursive=1`,
+        { headers }
+      );
+      if (treeRes.ok) {
+        const treeData = await treeRes.json();
+        if (Array.isArray(treeData.tree) && treeData.tree.length > 0) {
+          branch = b;
+          allItems = treeData.tree;
+          log(`✅ Received ${allItems.length} tree nodes from GitHub Git Trees API!`);
+          break;
+        }
+      }
+    } catch { /* try next branch */ }
+  }
 
-  type TreeItem = { path: string; type: 'blob' | 'tree'; size?: number };
-  const allItems: TreeItem[] = treeData.tree ?? [];
+  // 3. Fallback: Direct Raw Probe Scanner if Git Trees API rate limits
+  if (allItems.length === 0) {
+    log(`⚠️ GitHub API rate limit active. Activating direct raw file scanner…`);
+    const COMMON_PATHS = [
+      'package.json', 'tsconfig.json', 'README.md', 'index.html', 'vite.config.ts', 'vite.config.js',
+      'src/index.ts', 'src/index.js', 'src/index.tsx', 'src/index.jsx',
+      'src/App.ts', 'src/App.js', 'src/App.tsx', 'src/App.jsx',
+      'src/main.ts', 'src/main.js', 'src/main.tsx', 'src/main.jsx',
+      'src/server.ts', 'src/server.js', 'src/api.ts', 'src/api.js',
+      'src/db.ts', 'src/db.js', 'src/auth.ts', 'src/auth.js',
+      'src/utils.ts', 'src/utils.js', 'src/config.ts', 'src/config.js',
+      'main.py', 'app.py', 'server.py', 'config.py', 'utils.py', 'database.py', 'auth.py', 'models.py',
+      'cmd/main.go', 'main.go', 'go.mod',
+      'Cargo.toml', 'src/main.rs', 'src/lib.rs'
+    ];
+    const discoveredBlobs: { path: string; type: 'blob'; size?: number }[] = [];
+    const CHECK_CONCURRENCY = 15;
+    let checkIdx = 0;
+    const checkWorker = async () => {
+      while (checkIdx < COMMON_PATHS.length) {
+        const p = COMMON_PATHS[checkIdx++];
+        try {
+          const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/${p}`, { method: 'HEAD' });
+          if (res.ok) discoveredBlobs.push({ path: p, type: 'blob' });
+        } catch { /* skip */ }
+      }
+    };
+    const workers = [];
+    for (let w = 0; w < Math.min(CHECK_CONCURRENCY, COMMON_PATHS.length); w++) workers.push(checkWorker());
+    await Promise.all(workers);
+    allItems = discoveredBlobs;
+  }
+
   const dirs  = allItems.filter(i => i.type === 'tree' && !isIgnoredPath(i.path));
   const blobs = allItems.filter(i => i.type === 'blob' && !isIgnoredPath(i.path) && !isBinaryFile(i.path.split('/').pop() ?? ''));
   const codeBlobs  = blobs.filter(i => isCodeFile(i.path.split('/').pop() ?? ''));
 
-  log(`📂 Tree: ${dirs.length} folders, ${blobs.length} readable files (${codeBlobs.length} source code files)`);
+  log(`📂 Discovered ${blobs.length} total files (${codeBlobs.length} source code files) on branch "${branch}"`);
   setProgress(25);
 
   const files: ParsedFile[] = [];
 
-  // Non-code text files — add to tree display without fetching content
+  // Non-code files
   blobs.filter(i => !isCodeFile(i.path.split('/').pop() ?? '')).forEach(i => {
     files.push({
       name: i.path.split('/').pop() ?? i.path,
       path: `${repoName}/${i.path}`,
-      code: `// ${i.path}\n// Non-source file (${i.size ?? 0} bytes) — click to view raw on GitHub`,
+      code: `// ${i.path}\n// Non-source file (${i.size ?? 0} bytes) — view on GitHub`,
       isCode: false,
       size: i.size ?? 0,
     });
   });
 
-  // Fetch content for code files (respect rate limit)
-  const RATE_LIMIT = 75;
+  // Code files — fetch content in parallel using raw.githubusercontent.com (CORS: *)
+  const RATE_LIMIT = 200;
   const toFetch = codeBlobs.slice(0, RATE_LIMIT);
-  if (codeBlobs.length > RATE_LIMIT) {
-    log(`⚠️ Large repo: fetching content for first ${RATE_LIMIT}/${codeBlobs.length} code files (GitHub API rate limit). Upload a ZIP for full analysis.`);
-  }
-
-  // Fetch content for code files in parallel (concurrency limit: 8)
-  const FETCH_CONCURRENCY = 8;
+  const FETCH_CONCURRENCY = 12;
   const fetchResults: ParsedFile[] = new Array(toFetch.length);
   let nextFetchIdx = 0;
 
@@ -201,47 +266,35 @@ const fetchGitHubFiles = async (
     while (true) {
       const index = nextFetchIdx++;
       if (index >= toFetch.length) break;
-
       const blob = toFetch[index];
+      const rawUrl = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/${blob.path}`;
       try {
-        const r = await fetch(
-          `https://api.github.com/repos/${owner}/${repoName}/contents/${blob.path}?ref=${branch}`,
-          { headers }
-        );
-        if (!r.ok) {
+        const rawRes = await fetch(rawUrl);
+        if (rawRes.ok) {
+          const rawText = await rawRes.text();
+          fetchResults[index] = {
+            name: blob.path.split('/').pop() ?? blob.path,
+            path: `${repoName}/${blob.path}`,
+            code: rawText,
+            isCode: true,
+            size: blob.size ?? rawText.length
+          };
+        } else {
           fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Content unavailable', isCode: true, size: blob.size ?? 0 };
-          continue;
         }
-        const c = await r.json();
-        const code = c.content ? atob(c.content.replace(/\n/g, '')) : '// Empty file';
-        fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code, isCode: true, size: blob.size ?? 0 };
       } catch {
         fetchResults[index] = { name: blob.path.split('/').pop() ?? blob.path, path: `${repoName}/${blob.path}`, code: '// Fetch error', isCode: true, size: blob.size ?? 0 };
       }
-
       const completedCount = fetchResults.filter(Boolean).length;
-      setProgress(25 + Math.round((completedCount / toFetch.length) * 30));
+      setProgress(25 + Math.round((completedCount / (toFetch.length || 1)) * 70));
     }
   };
 
   const fetchWorkers = [];
-  for (let w = 0; w < Math.min(FETCH_CONCURRENCY, toFetch.length); w++) {
-    fetchWorkers.push(fetchWorker());
-  }
+  for (let w = 0; w < Math.min(FETCH_CONCURRENCY, toFetch.length); w++) fetchWorkers.push(fetchWorker());
   await Promise.all(fetchWorkers);
 
-  files.push(...fetchResults);
-
-  // Code files beyond fetch limit — tree entry only, no content
-  codeBlobs.slice(RATE_LIMIT).forEach(blob => {
-    files.push({
-      name: blob.path.split('/').pop() ?? blob.path,
-      path: `${repoName}/${blob.path}`,
-      code: `// Content not fetched — repo exceeds free GitHub API rate limit.\n// Upload a ZIP for full analysis.`,
-      isCode: true,
-      size: blob.size ?? 0,
-    });
-  });
+  files.push(...fetchResults.filter(Boolean));
 
   return { files, foldersFound: dirs.length, repoName, branch };
 };
@@ -770,10 +823,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               const stats = proj.analysisStats;
               const findings = proj.files.reduce((a, f) => a + f.issues.filter(i => !i.applied).length, 0);
               return (
-                <div key={proj.id} style={{
-                  backgroundColor: 'rgba(15,23,42,0.4)', border: '1px solid var(--border-color)',
-                  borderRadius: '6px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px',
-                }}>
+                <div key={proj.id}
+                  onClick={() => onSelectProject(proj.id)}
+                  style={{
+                    backgroundColor: 'rgba(15,23,42,0.4)', border: '1px solid var(--border-color)',
+                    borderRadius: '6px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px',
+                    cursor: 'pointer', transition: 'border-color 0.2s ease, transform 0.15s ease'
+                  }}
+                  className="project-card-item"
+                >
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                       <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{proj.name}</h3>
@@ -829,7 +887,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <button className="btn" onClick={() => onSelectProject(proj.id)}>
+                      <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); onSelectProject(proj.id); }}>
                         Open Workspace <Play size={11} style={{ fill: 'currentColor' }} />
                       </button>
                     </div>

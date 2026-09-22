@@ -775,9 +775,13 @@ Instructions:
 
 
   const project = projects.find(p => p.id === activeProjectId);
-  if (!project) return <div>Project not found</div>;
+  if (!project) return <div style={{ padding: '24px', color: 'var(--text-secondary)' }}>Project not found</div>;
 
-  const activeFile = project.files.find(f => f.id === activeFileId) || project.files[0];
+  const activeFile = project.files.find(f => f.id === activeFileId) 
+    || project.files.find(f => f.issues && f.issues.some(i => !i.applied))
+    || project.files.find(f => f.isCode)
+    || project.files[0]
+    || { id: 'empty', name: 'No files', path: 'No files', isCode: false, code: '// No files in project', issues: [], riskState: 'safe', riskScore: 0 };
 
   const generateAIReview = async () => {
     const keys = [

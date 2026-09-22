@@ -63,6 +63,7 @@ export interface Memory {
   date: string;
   matchPercentage?: number;
   ownerId?: string;
+  projectId?: string;
 }
 
 export interface Standard {

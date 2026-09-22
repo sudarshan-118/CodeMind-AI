@@ -537,7 +537,12 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
     
     // Auto select workspace
     setActiveProjectId(newProj.id);
-    setActiveFileId(newProj.files[0].id);
+    const initialFile = newProj.files.find(f => f.issues && f.issues.some(i => !i.applied)) 
+      || newProj.files.find(f => f.isCode) 
+      || newProj.files[0];
+    if (initialFile) {
+      setActiveFileId(initialFile.id);
+    }
     setView('workspace');
 
     // Create DB entries
@@ -689,7 +694,7 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
     saveProjects(remainingProjects);
 
     if (activeProjectId === projectId) {
-      setActiveProjectId(remainingProjects.length > 0 ? remainingProjects[0].id : null);
+      setActiveProjectId(remainingProjects.length > 0 ? remainingProjects[0].id : '');
     }
 
     handleAddActivity({
@@ -914,7 +919,12 @@ Instructions:
     setActiveProjectId(id);
     const proj = projects.find(p => p.id === id);
     if (proj && proj.files.length > 0) {
-      setActiveFileId(proj.files[0].id);
+      const initialFile = proj.files.find(f => f.issues && f.issues.some(i => !i.applied))
+        || proj.files.find(f => f.isCode)
+        || proj.files[0];
+      if (initialFile) {
+        setActiveFileId(initialFile.id);
+      }
     }
     setView('workspace');
   };
