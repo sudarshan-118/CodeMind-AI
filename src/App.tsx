@@ -12,6 +12,7 @@ import { supabase } from './supabaseClient';
 import { RepositoryMemoryEngine } from './backend';
 import { Brain, LayoutDashboard, Code, BookOpen, ToggleLeft } from 'lucide-react';
 import { useUser, useAuth, UserButton } from '@clerk/clerk-react';
+import { getGroqBaseUrl, getGroqApiKeys, getGroqModel } from './services/aiConfig';
 
 const applyLocalFallbackFix = (code: string, issue: any, fileName: string): string => {
   // If it's one of the mock files, use the existing hardcoded logic
@@ -423,40 +424,10 @@ export default function App() {
     setIsGeneratingSuggestions(true);
 
     try {
-      const keys = [
-        import.meta.env.VITE_GROQ_API_KEY,
-        import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-        import.meta.env.VITE_GROQ_API_KEY_3,
-        import.meta.env.VITE_GROQ_API_KEY_4
-      ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+      const keys = getGroqApiKeys();
+      const keysToTry = keys.length > 0 ? keys : [''];
 
-      if (keys.length === 0) {
-        // Fallback: mix of default suggestions and some generated ones
-        const fallbackSuggestions: Standard[] = [
-          ...DEFAULT_SUGGESTIONS,
-          {
-            id: `sug-${Date.now()}-1`,
-            name: 'Avoid Sync File System Calls',
-            description: 'Avoid using synchronous block-execution I/O calls (e.g. readFileSync) in server-side paths.',
-            enabled: true,
-            ruleKeyword: 'readFileSync',
-            severity: 'warning'
-          },
-          {
-            id: `sug-${Date.now()}-2`,
-            name: 'No Hardcoded IP Addresses',
-            description: 'Prevent hardcoded localhost or local network IP addresses in source files.',
-            enabled: true,
-            ruleKeyword: '127.0.0.1',
-            severity: 'warning'
-          }
-        ];
-        setAiSuggestions(fallbackSuggestions);
-        setIsGeneratingSuggestions(false);
-        return;
-      }
-
-      // If we have keys, call AI
+      // If we have keys (or serverless proxy), call AI
       const projectNames = projects.map(p => p.name);
       const sysPrompt = `You are a Senior Software Architect and Security Engineer.
 Based on the technologies in the user's projects: ${projectNames.length > 0 ? projectNames.join(', ') : 'React, TypeScript, Node.js, Python'}
@@ -480,12 +451,16 @@ Return ONLY a valid JSON array of objects with the following format:
 Do not wrap in markdown code blocks, and do not write any other text. Return raw JSON only.`;
 
       const executeAI = async (apiKey: string) => {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: [{ role: 'system', content: sysPrompt }],
             temperature: 0.7,
           }),
@@ -499,7 +474,7 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
       };
 
       let parsed: any[] = [];
-      for (const key of keys) {
+      for (const key of keysToTry) {
         try {
           parsed = await executeAI(key);
           if (parsed && Array.isArray(parsed) && parsed.length > 0) {
@@ -744,21 +719,16 @@ Do not wrap in markdown code blocks, and do not write any other text. Return raw
 
     // Try AI dynamic refactoring first if keys are available
     try {
-      const keys = [
-        import.meta.env.VITE_GROQ_API_KEY,
-        import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-        import.meta.env.VITE_GROQ_API_KEY_3,
-        import.meta.env.VITE_GROQ_API_KEY_4
-      ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+      const keys = getGroqApiKeys();
+      const keysToTry = keys.length > 0 ? keys : [''];
 
-      if (keys.length > 0) {
-        const cleanMemories = memories.slice(0, 10).map(m => ({
-          issue: m.issue,
-          fix: m.fix,
-          recommendation: m.recommendation
-        }));
+      const cleanMemories = memories.slice(0, 10).map(m => ({
+        issue: m.issue,
+        fix: m.fix,
+        recommendation: m.recommendation
+      }));
 
-        const sysPrompt = `You are an expert software engineer and security refactoring agent.
+      const sysPrompt = `You are an expert software engineer and security refactoring agent.
 Your task is to fix a vulnerability in the provided code.
 Vulnerability Details:
 - Issue Type: ${targetIssue.type}
@@ -775,36 +745,39 @@ Instructions:
 3. Keep the rest of the code exactly the same. Do not remove unrelated code.
 4. Return ONLY the complete, raw refactored code. Do NOT wrap it in markdown code blocks, and do not add any comments or explanations outside the code. Just return the code.`;
 
-        const executeAI = async (apiKey: string) => {
-          const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
-          const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'llama-3.3-70b-versatile',
-              messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: targetFile.code || '' }],
-              temperature: 0.1,
-            }),
-          });
-          if (!res.ok) throw new Error(`HTTP status ${res.status}`);
-          const data = await res.json();
-          let txt = data.choices?.[0]?.message?.content ?? '';
-          const match = txt.match(/```(?:[a-zA-Z0-9]+)?\s*([\s\S]*?)```/);
-          if (match) txt = match[1];
-          return txt.trim();
-        };
+      const executeAI = async (apiKey: string) => {
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: getGroqModel(),
+            messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: targetFile.code || '' }],
+            temperature: 0.1,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+        const data = await res.json();
+        let txt = data.choices?.[0]?.message?.content ?? '';
+        const match = txt.match(/```(?:[a-zA-Z0-9]+)?\s*([\s\S]*?)```/);
+        if (match) txt = match[1];
+        return txt.trim();
+      };
 
-        for (const key of keys) {
-          try {
-            const aiFixedCode = await executeAI(key);
-            if (aiFixedCode && aiFixedCode.length > 10) {
-              newCode = aiFixedCode;
-              success = true;
-              break;
-            }
-          } catch (err) {
-            console.warn("AI fix attempt failed:", err);
+      for (const key of keysToTry) {
+        try {
+          const aiFixedCode = await executeAI(key);
+          if (aiFixedCode && aiFixedCode.length > 10) {
+            newCode = aiFixedCode;
+            success = true;
+            break;
           }
+        } catch (err) {
+          console.warn("AI fix attempt failed:", err);
         }
       }
     } catch (aiErr) {

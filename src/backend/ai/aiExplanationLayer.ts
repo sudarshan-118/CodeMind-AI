@@ -1,5 +1,6 @@
 // AI Explanation Layer (On-Demand AI Assistant for Explaining Findings)
 import type { Finding } from '../shared/types';
+import { getGroqBaseUrl, getGroqApiKeys, getGroqModel } from '../../services/aiConfig';
 
 export interface AIExplanationResult {
   explanation: string;
@@ -9,21 +10,13 @@ export interface AIExplanationResult {
 }
 
 export class AIExplanationLayer {
-  private static getApiKeys(): string[] {
-    return [
-      import.meta.env.VITE_GROQ_API_KEY,
-      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-      import.meta.env.VITE_GROQ_API_KEY_3,
-      import.meta.env.VITE_GROQ_API_KEY_4
-    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
-  }
-
   public static async explainFinding(
     finding: Finding,
     codeContext: string,
     graphMetadata?: { impactedFiles?: string[]; couplingScore?: number }
   ): Promise<AIExplanationResult> {
-    const keys = this.getApiKeys();
+    const keys = getGroqApiKeys();
+    const keysToTry = keys.length > 0 ? keys : [''];
 
     const graphImpactSummary = graphMetadata?.impactedFiles && graphMetadata.impactedFiles.length > 0
       ? `Changes to ${finding.file} potentially impact ${graphMetadata.impactedFiles.length} dependent module(s): ${graphMetadata.impactedFiles.slice(0, 3).join(', ')}.`
@@ -53,17 +46,20 @@ Code Context:
 ${codeContext.slice(0, 2000)}
 \`\`\``;
 
-    for (const key of keys) {
+    for (const key of keysToTry) {
       try {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (key) {
+          headers['Authorization'] = `Bearer ${key}`;
+        }
         const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${key}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }

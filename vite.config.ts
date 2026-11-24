@@ -11,6 +11,26 @@ export default defineConfig({
         target: 'https://api.groq.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api-groq/, '')
+      },
+      '/api/groq': {
+        target: 'https://api.groq.com/openai/v1/chat/completions',
+        changeOrigin: true,
+        rewrite: () => ''
+      }
+    }
+  },
+  preview: {
+    host: true,
+    proxy: {
+      '/api-groq': {
+        target: 'https://api.groq.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-groq/, '')
+      },
+      '/api/groq': {
+        target: 'https://api.groq.com/openai/v1/chat/completions',
+        changeOrigin: true,
+        rewrite: () => ''
       }
     }
   }

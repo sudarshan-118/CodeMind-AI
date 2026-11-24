@@ -5,6 +5,7 @@ import { INITIAL_PROJECTS } from '../mockData';
 import JSZip from 'jszip';
 import { CodeMindEngine, RepositoryMemoryEngine } from '../backend';
 import { RepositoryTimeline } from './RepositoryTimeline';
+import { getGroqBaseUrl, getGroqApiKeys, getGroqModel } from '../services/aiConfig';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,20 +390,16 @@ const extractMemoriesFromCode = async (
 
   // 1. Try AI-based extraction if keys are available
   try {
-    const keys = [
-      import.meta.env.VITE_GROQ_API_KEY,
-      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-      import.meta.env.VITE_GROQ_API_KEY_3,
-      import.meta.env.VITE_GROQ_API_KEY_4
-    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
+    const keys = getGroqApiKeys();
+    const keysToTry = keys.length > 0 ? keys : [''];
 
-    if (keys.length > 0) {
-      const coreCodeSummaries = files
-        .filter(f => f.isCode && f.code && f.code.length > 50)
-        .slice(0, 5)
-        .map(f => `File: ${f.path}\nContent:\n${f.code?.slice(0, 1500)}`)
-        .join('\n\n');
+    const coreCodeSummaries = files
+      .filter(f => f.isCode && f.code && f.code.length > 50)
+      .slice(0, 5)
+      .map(f => `File: ${f.path}\nContent:\n${f.code?.slice(0, 1500)}`)
+      .join('\n\n');
 
+    if (coreCodeSummaries.length > 0) {
       const sys = `You are CodeMind AI, the Hindsight Memory Extractor.
 Your task is to analyze the provided codebase files and identify 1-2 exemplary secure implementations, clean architectural patterns, or properly resolved security issues.
 For each exemplary pattern found, format it as a learned Memory:
@@ -414,12 +411,16 @@ For each exemplary pattern found, format it as a learned Memory:
 Return ONLY a valid JSON object with the format: {"memories":[{"issue":"...","fix":"...","outcome":"...","recommendation":"..."}]}`;
 
       const execute = async (apiKey: string) => {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: [{ role: 'system', content: sys }, { role: 'user', content: coreCodeSummaries }],
             temperature: 0.2,
             response_format: { type: 'json_object' }
@@ -433,7 +434,7 @@ Return ONLY a valid JSON object with the format: {"memories":[{"issue":"...","fi
         return JSON.parse(txt);
       };
 
-      for (const key of keys) {
+      for (const key of keysToTry) {
         try {
           const parsed = await execute(key);
           if (Array.isArray(parsed.memories)) {

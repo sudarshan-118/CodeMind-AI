@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Project, ProjectFile, Memory } from '../types';
 import { ArrowLeft, Search, Code, Share2, Brain, CheckCircle, Loader, MessageSquare, Send, Sparkles, RefreshCw, Trash2 } from 'lucide-react';
 import { DependencyGraphView } from './DependencyGraphView';
+import { getGroqBaseUrl, getGroqApiKeys, getGroqModel } from '../services/aiConfig';
 
 interface FileTreeNode {
   name: string;
@@ -547,24 +548,8 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     setChatInput('');
     setChatLoading(true);
 
-    const keys = [
-      import.meta.env.VITE_GROQ_API_KEY,
-      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-      import.meta.env.VITE_GROQ_API_KEY_3,
-      import.meta.env.VITE_GROQ_API_KEY_4
-    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
-
-    if (keys.length === 0) {
-      setTimeout(() => {
-        setChatMessages(prev => [...prev, {
-          sender: 'ai',
-          text: "⚠️ **Offline Mode:** Groq API keys are not configured. To enable live AI chat, please add your `VITE_GROQ_API_KEY` to the environment configuration.\n\n*However, based on local analysis, you can resolve typical SQL injection issues by using parameterized queries, and hardcoded credentials by moving them to environment files.*",
-          timestamp: new Date()
-        }]);
-        setChatLoading(false);
-      }, 1000);
-      return;
-    }
+    const keys = getGroqApiKeys();
+    const keysToTry = keys.length > 0 ? keys : [''];
 
     try {
       const issueContextStr = chatContextIssue 
@@ -606,15 +591,18 @@ Instructions:
       ];
 
       const executeChatRequest = async (apiKey: string) => {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: messagesForAPI,
             temperature: 0.4
           })
@@ -625,18 +613,27 @@ Instructions:
       let response: Response | null = null;
       let lastError: any = null;
 
-      for (let i = 0; i < keys.length; i++) {
+      for (let i = 0; i < keysToTry.length; i++) {
         try {
-          const res = await executeChatRequest(keys[i]);
+          const res = await executeChatRequest(keysToTry[i]);
           if (res.ok) {
             response = res;
             break;
           } else {
-            console.warn(`Chatbot: Key ${i + 1} returned status ${res.status}`);
-            lastError = new Error(`HTTP status ${res.status}`);
+            let errorDetail = `HTTP status ${res.status}`;
+            try {
+              const errJson = await res.json();
+              if (errJson?.error?.message) {
+                errorDetail = errJson.error.message;
+              }
+            } catch {
+              // fallback to HTTP status
+            }
+            console.warn(`Chatbot: Key attempt ${i + 1} returned status ${res.status}: ${errorDetail}`);
+            lastError = new Error(errorDetail);
           }
         } catch (err) {
-          console.warn(`Chatbot: Key ${i + 1} failed.`, err);
+          console.warn(`Chatbot: Key attempt ${i + 1} failed.`, err);
           lastError = err;
         }
       }
@@ -650,9 +647,12 @@ Instructions:
       setChatMessages(prev => [...prev, { sender: 'ai', text: reply, timestamp: new Date() }]);
     } catch (err: any) {
       console.error(err);
+      const isConfigError = err.message?.includes('401') || err.message?.toLowerCase().includes('not found') || err.message?.toLowerCase().includes('api key');
       setChatMessages(prev => [...prev, {
         sender: 'ai',
-        text: `⚠️ **Error:** Failed to connect to AI Agent (${err.message || err}). Please try again or check your API key rotation configuration.`,
+        text: isConfigError && keys.length === 0
+          ? `⚠️ **API Key Required:** Groq API key is not configured in Vercel or environment variables. Please add \`VITE_GROQ_API_KEY\` or \`GROQ_API_KEY\` to your Vercel project environment variables.\n\n*However, based on local analysis, you can resolve typical security issues by using parameterized queries and moving credentials to environment configuration.*`
+          : `⚠️ **Error:** Failed to connect to AI Agent (${err.message || err}). Please try again or check your API key rotation configuration.`,
         timestamp: new Date()
       }]);
     } finally {
@@ -666,20 +666,8 @@ Instructions:
       [issueId]: { code: '', loading: true }
     }));
 
-    const keys = [
-      import.meta.env.VITE_GROQ_API_KEY,
-      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-      import.meta.env.VITE_GROQ_API_KEY_3,
-      import.meta.env.VITE_GROQ_API_KEY_4
-    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
-
-    if (keys.length === 0) {
-      setTailoredFixes(prev => ({
-        ...prev,
-        [issueId]: { code: '', loading: false, error: 'Groq API keys are not configured. Cannot generate dynamic fix.' }
-      }));
-      return;
-    }
+    const keys = getGroqApiKeys();
+    const keysToTry = keys.length > 0 ? keys : [''];
 
     try {
       const sysPrompt = `You are CodeMind AI's Agentic Memory Refactorer.
@@ -705,15 +693,18 @@ Instructions:
 2. Return ONLY the complete, correct refactored code for the entire file. Do NOT wrap it in markdown code blocks, do not explain anything, do not write comments outside the code. Just return the raw code of the refactored file.`;
 
       const executeRequest = async (apiKey: string) => {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         const res = await fetch(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: [
               { role: 'system', content: sysPrompt },
               { role: 'user', content: 'Generate the refactored code.' }
@@ -727,9 +718,9 @@ Instructions:
       let response: Response | null = null;
       let lastError: any = null;
 
-      for (let i = 0; i < keys.length; i++) {
+      for (let i = 0; i < keysToTry.length; i++) {
         try {
-          const res = await executeRequest(keys[i]);
+          const res = await executeRequest(keysToTry[i]);
           if (res.ok) {
             response = res;
             break;
@@ -784,17 +775,8 @@ Instructions:
     || { id: 'empty', name: 'No files', path: 'No files', isCode: false, code: '// No files in project', issues: [], riskState: 'safe', riskScore: 0 };
 
   const generateAIReview = async () => {
-    const keys = [
-      import.meta.env.VITE_GROQ_API_KEY,
-      import.meta.env.VITE_GROQ_API_KEY_FALLBACK,
-      import.meta.env.VITE_GROQ_API_KEY_3,
-      import.meta.env.VITE_GROQ_API_KEY_4
-    ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
-
-    if (keys.length === 0) {
-      setAiReviewText("### AI Review Agent (Offline)\n\nGroq API Key is not configured. Please add `VITE_GROQ_API_KEY` to your environment variables to enable dynamic AI reviews.");
-      return;
-    }
+    const keys = getGroqApiKeys();
+    const keysToTry = keys.length > 0 ? keys : [''];
 
     setLoadingReview(true);
     setAiReviewText('');
@@ -831,7 +813,7 @@ Instructions:
       const userPrompt = `Generate the audit review report.`;
 
       const executeRequest = async (apiKey: string) => {
-        const baseUrl = import.meta.env.DEV ? '/api-groq' : 'https://api.groq.com';
+        const baseUrl = getGroqBaseUrl();
         
         const fetchWithRetry = async (
           url: string,
@@ -861,14 +843,18 @@ Instructions:
           }
         };
 
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
         return await fetchWithRetry(`${baseUrl}/openai/v1/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: getGroqModel(),
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
@@ -881,19 +867,19 @@ Instructions:
       let response: Response | null = null;
       let lastError: any = null;
 
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
+      for (let i = 0; i < keysToTry.length; i++) {
+        const key = keysToTry[i];
         try {
           const res = await executeRequest(key);
           if (res.ok) {
             response = res;
             break;
           } else {
-            console.warn(`CodeMind AI: Workspace Key ${i + 1}/${keys.length} failed with status ${res.status}.`);
+            console.warn(`CodeMind AI: Workspace Key attempt ${i + 1}/${keysToTry.length} failed with status ${res.status}.`);
             lastError = new Error(`HTTP status ${res.status}`);
           }
         } catch (err) {
-          console.warn(`CodeMind AI: Workspace Key ${i + 1}/${keys.length} threw an error.`, err);
+          console.warn(`CodeMind AI: Workspace Key attempt ${i + 1}/${keysToTry.length} threw an error.`, err);
           lastError = err;
         }
       }
